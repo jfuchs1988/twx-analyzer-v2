@@ -31,6 +31,7 @@ License notices are in `LICENSE` and `NOTICE`. Preserve these files when redistr
 
 - Use one dedicated Git worktree and topic branch for each new task; do not develop directly on `develop` or `master`.
 - Merge reviewed, tested topic branches into `develop`.
+- After confirming the merge in `develop`, automatically delete the merged topic branch locally and remotely. Never delete `develop` or `master` through this cleanup.
 - Merge `develop` into `master` only when the user confirms the release state is ready.
 - Do not force-push or rewrite shared branch history. Preserve local uncommitted changes when creating worktrees or reconciling branches.
 
