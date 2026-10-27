@@ -12,11 +12,11 @@ Rules implement the existing rule contract and are invoked by `RuleEngine` in ID
 
 ## Error and load behavior
 
-Ingest jobs run with bounded concurrency. The transaction timeout is configurable through `TX_TIMEOUT`. Per-rule failures are represented as findings; parser, database, or ingest failures can still fail the job.
+Ingest jobs run with bounded concurrency. The transaction timeout is configurable through `TX_TIMEOUT`. Search reads candidates in stable-ID pages of 32, checks the request budget between pages/objects, and clears each processed persistence-context page. A synthetic 4,096-object Quarkus regression test checks that a late match is returned within the 15-second maximum search budget. Per-rule failures are represented as findings; parser, database, or ingest failures can still fail the job.
 
 ## Configuration and secrets
 
-Configuration is in `application.properties` and can be overridden through MicroProfile Config/environment variables. First-time Podman setup creates a random `DB_SECRET` in Git-ignored `data/db.env`; protect and back up that file with `data/mariadb`. Production should use the established secure secret-management path. `SecretsCrypto` uses PBKDF2-HMAC-SHA256 and AES-256-GCM with a per-value salt and IV. Without `DB_SECRET`, values are stored as plaintext for compatibility. Losing or changing the secret can make existing encrypted values unreadable.
+Configuration is in `application.properties` and can be overridden through MicroProfile Config/environment variables. First-time Podman setup creates a random `DB_SECRET` in Git-ignored `data/db.env`; protect and back up that file with `data/mariadb`. The production profile fails at startup without `DB_SECRET`; non-production profiles retain plaintext compatibility, and existing plaintext BAW passwords are encrypted transactionally at startup when a key is present. `SecretsCrypto` uses PBKDF2-HMAC-SHA256 and AES-256-GCM with a per-value salt and IV. Rotate by supplying the new `DB_SECRET` and old `DB_SECRET_PREVIOUS` for one startup; successful startup re-encrypts the stored password transactionally. Remove the previous key after verifying the BPM connection. Keep a database backup paired with its key: a lost key cannot be recovered from ciphertext, but restoring the paired backup/key or re-entering the BAW password recovers service.
 
 ## Interfaces and localization
 

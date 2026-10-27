@@ -63,15 +63,16 @@ public class StartupMigrations {
      */
     @Transactional
     public void encryptBpmPassword(@Observes StartupEvent ev) {
-        if (!secrets.enabled()) {
-            return;
-        }
+        secrets.validateConfiguration();
         BpmSettings s = BpmSettings.findById(1L);
-        if (s != null && s.password != null && !s.password.isEmpty()
-                && !SecretsCrypto.isEncrypted(s.password)) {
-            s.password = secrets.encrypt(s.password);
+        if (s != null && s.password != null && !s.password.isEmpty()) {
+            String migrated = secrets.migrate(s.password);
+            if (migrated.equals(s.password)) {
+                return;
+            }
+            s.password = migrated;
             s.persist();
-            LOG.info("Encrypted the BAW password in the database (DB_SECRET is configured).");
+            LOG.info("Migrated the stored BAW password to the configured DB_SECRET.");
         }
     }
 }

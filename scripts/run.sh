@@ -34,6 +34,14 @@ DB_MODE=start
 [ "$SKIP_DB" = "1" ] && DB_MODE=skip
 twxav2_ensure_podman_db "$REPO" "$DB_MODE"
 
+# The packaged Quarkus application runs with the production profile, where
+# plaintext storage is forbidden. DB_SECRET is loaded from the protected db.env.
+if [ -z "${DB_SECRET:-}" ]; then
+  echo "ERROR: DB_SECRET is required to run the production application." >&2
+  echo "Restore it from the protected data/db.env or configure it through a secret manager." >&2
+  exit 1
+fi
+
 # ---- Application ----
 # Optional PEM trust anchor for direct BPM import; it can also be configured in
 # the settings UI. Without a file, system certificate authorities are used.
@@ -56,6 +64,8 @@ EXTRA_ENV=()
 [ -n "${BPM_DEFAULT_BASE_URL:-}" ] && EXTRA_ENV+=(-e BPM_DEFAULT_BASE_URL="$BPM_DEFAULT_BASE_URL")
 # Master secret for encrypting the stored BAW password (SecretsCrypto).
 [ -n "${DB_SECRET:-}" ] && EXTRA_ENV+=(-e DB_SECRET="$DB_SECRET")
+# Temporary old key for startup re-encryption; remove it after successful rotation.
+[ -n "${DB_SECRET_PREVIOUS:-}" ] && EXTRA_ENV+=(-e DB_SECRET_PREVIOUS="$DB_SECRET_PREVIOUS")
 podman rm -f "$APP" >/dev/null 2>&1 || true
 podman run -d --name "$APP" --network "$NET" \
   -p 127.0.0.1:8080:8080 \

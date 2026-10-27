@@ -37,13 +37,15 @@ changes (including targeted false-positive fixes), and German rule-text
 overlays (`ruletexts-de.properties`).
 
 --------------------------------------------------------------------
-Selected third-party components (not a complete transitive inventory)
+Third-party dependency inventory
 --------------------------------------------------------------------
 
-  * Mozilla Rhino (MPL-2.0; Maven version 1.9.1) — syntax and AST analysis for
-    JavaScript rules R-JS-022, R-JS-023, R-JS-025 through R-JS-034, and R-UI-001
-    (regular Maven dependency)
-  * Quarkus (Apache-2.0), MariaDB JDBC (LGPL-2.1), Mantine/React (MIT)
-    — selected direct dependencies; verify complete license information for
-    all direct and transitive build dependencies separately using Maven/npm
-    package metadata.
+  * The complete resolved Maven and npm dependency inventory, including license
+    declarations, versions, coordinates/package sources, and scope notes, is in
+    docs/THIRD-PARTY-NOTICES.md (also included in the container image).
+  * The runtime includes Mozilla Rhino 1.9.1 (MPL-2.0) for JavaScript analysis
+    and MariaDB Connector/J 3.5.10 (LGPL-2.1-or-later). Their project/source
+    links and the resolved third-party artifact list are in that inventory.
+  * Quarkus and many transitive components declare Apache-2.0; other declared
+    terms include EPL/EDL, BSD, MIT, ISC, and public-domain licenses. Preserve
+    each redistributed component's applicable license and attribution notices.

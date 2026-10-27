@@ -60,6 +60,20 @@ class ExportApiTest {
     }
 
     @Test
+    void csvExportNeutralizesFormulaLeadingFields() throws Exception {
+        Snapshot s = fx.snapshot("FIXE", "Formula safety", Snapshot.Status.READY);
+        Finding f = fx.finding(s, "R-TST-003", Finding.Severity.MAJOR, Finding.Status.OPEN);
+        fx.formulaLeadingFinding(f.id);
+
+        HttpResponse<String> csv = get("/api/export/" + s.id + "/csv");
+
+        assertEquals(200, csv.statusCode());
+        for (String value : new String[]{"'=1+1", "'+1+1", "'-1+1", "'@SUM(A1:A2)"}) {
+            assertTrue(csv.body().contains(value), "formula-leading value was not neutralized: " + value);
+        }
+    }
+
+    @Test
     void htmlExport() throws Exception {
         Snapshot s = demo();
         HttpResponse<String> html = get("/api/export/" + s.id + "/html");

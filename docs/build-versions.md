@@ -23,6 +23,7 @@
 | typescript-eslint | 8.72.1 | Current release |
 | ESLint / `@eslint/js` | 10.13.0 / 10.0.1 | Current stable majors; Hooks lint retains the project's established core rules |
 | Vite / React plugin | 8.3.5 / 6.1.2 | Current stable releases; Node 24 satisfies their minimum version |
+| Frontend component testing | Vitest 5.0.5, Testing Library React 16.3.3, user-event 14.6.8, jest-dom 7.0.1, jsdom 30.1.3 | Resolved versions in `frontend/package-lock.json`; used by `npm test` |
 | PostCSS | 8.5.32 | Current patch; Mantine preset 1.18.0 and simple-vars 7.0.1 |
 | Runtime JRE image | `eclipse-temurin:25-jre` | Tracks current patches on the Java 25 LTS line |
 | MariaDB | 11.8.9 LTS | Newest patch on the existing 11.x line; no automatic switch to a new major with a persistent database volume |
@@ -33,9 +34,9 @@ MariaDB 12.3.3 is also an LTS line and is newer. The current MariaDB 11.8.9 data
 
 ## Local build
 
-The build, backend tests, and frontend lint run locally without Podman. The local preview and live-reload scripts use Podman MariaDB; image creation requires the explicit `scripts/build-image.sh` or `scripts/build-container.sh` commands. The verified portable tools are in the ignored `temp/toolchain/` directory and are not part of the distribution.
+The build, backend tests, frontend component tests (`npm test`), and frontend lint run locally without Podman. The local preview and live-reload scripts use Podman MariaDB; image creation requires the explicit `scripts/build-image.sh` or `scripts/build-container.sh` commands. The verified portable tools are in the ignored `temp/toolchain/` directory and are not part of the distribution.
 
-On 2026-10-27, the Vite production build, ESLint, local Quarkus package build, all 453 backend tests, and the JaCoCo gate passed. The Podman MariaDB-backed host preview also passed a health check and UI/API smoke check. The optional application image and MariaDB 12.3 migration test were not run.
+On 2026-10-27, the Vite production build, ESLint, all 4 Vitest component tests, Quarkus package build, all 459 backend tests, and the JaCoCo gate passed. The Podman MariaDB-backed host preview also passed a health check and UI/API smoke check in the prior verified run. The optional application image and MariaDB 12.3 migration test were not run for this task.
 
 ## Sources
 
