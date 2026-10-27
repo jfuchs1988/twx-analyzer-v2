@@ -10,6 +10,6 @@ Never document or reference developer-local test data in repository docs or code
 - [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md): resolved Maven/npm dependency license inventory and distribution notices.
 - [`build-versions.md`](build-versions.md): reviewed build/runtime versions and documented exceptions.
 
-This documentation describes the state visible in the source tree. ADR-001 through ADR-010 record the supplied architecture decisions; ADR-011 records the secret-encryption decision reconstructed from the current implementation. License and provenance information is in the root `LICENSE` and `NOTICE` files.
+This documentation describes the state visible in the source tree. ADR-001 through ADR-010 record the supplied architecture decisions; ADR-011 records the secret-encryption decision reconstructed from the current implementation; ADR-012 records the accepted frontend modularity/deployment choice. License and provenance information is in the root `LICENSE` and `NOTICE` files.
 
 `WORKLOG.md` is a short-lived handoff for active work and unresolved tasks, not a project history. Remove completed items after updating any canonical documentation they affect.

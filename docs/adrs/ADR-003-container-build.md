@@ -13,7 +13,7 @@ The default build runs locally through `scripts/build.sh`:
 
 1. Local Node/npm installs frontend dependencies with `npm ci` and builds the Vite assets.
 2. Local Maven builds the Quarkus package.
-3. A container image is created only when explicitly requested through `scripts/build-image.sh` or `scripts/build-container.sh`.
+3. Images are created only when explicitly requested through `scripts/build-image.sh` (API), `scripts/build-frontend-image.sh` (frontend), or `scripts/build-container.sh` (both).
 
 Local toolchain versions are documented in `docs/build-versions.md`.
 
@@ -26,4 +26,4 @@ Local toolchain versions are documented in `docs/build-versions.md`.
 
 - The specified host tool versions must be available for local builds.
 - Podman is not required for tests or the normal package build.
-- Build the frontend before Maven so the Quarkus package includes the static assets.
+- The static frontend and Quarkus API are independently built and packaged; the standard runtime needs both images.

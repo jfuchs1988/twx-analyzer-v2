@@ -17,4 +17,4 @@
 
 ## Analysis and display
 
-The UI requests snapshots and details through `/api/...`. Comparisons report added, removed, and changed objects plus finding deltas. API calls are listed in `frontend/src/api.ts`; their resource mappings are under `src/main/java/io/twxav2/api/`.
+The UI requests snapshots and details through `/api/...`, which the frontend reverse proxy forwards to Quarkus. Comparisons report added, removed, and changed objects plus finding deltas. Typed calls are listed in `frontend/src/shared/api.ts`; their resource mappings are under `src/main/java/io/twxav2/api/`.

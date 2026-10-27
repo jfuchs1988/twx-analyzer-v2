@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop the app container and, unless --keep-db is given, the database container/network.
+# Stop the frontend/API containers and, unless --keep-db is given, the database/network.
 # The repository data/ directory is always preserved.
 set -euo pipefail
 
@@ -16,9 +16,9 @@ for arg in "$@"; do
   esac
 done
 
-podman rm -f twxav2-app 2>/dev/null || true
+podman rm -f twxav2-frontend twxav2-app 2>/dev/null || true
 if [ "$KEEP_DB" = "1" ]; then
-  echo "App stopped. MariaDB remains running on 127.0.0.1:8081."
+  echo "Frontend and API stopped. MariaDB remains running on 127.0.0.1:8081."
   exit 0
 fi
 podman rm -f twxav2-db 2>/dev/null || true

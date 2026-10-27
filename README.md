@@ -18,7 +18,7 @@ TWX Analyzer v2 analyzes IBM Business Automation Workflow (BAW) and Process Desi
 src/main/java/io/twxav2/    Java backend: REST API, TWX ingest, analysis, persistence
 src/main/resources/         Quarkus configuration and rule text
 src/test/java/              Backend tests
-frontend/                   React/TypeScript UI (Vite)
+frontend/                   React/TypeScript UI (Vite), built independently
 scripts/                    Local build/test and optional Podman scripts
 docs/arc42/                 Architecture documentation, one file per section
 docs/adrs/                  Architecture Decision Records
@@ -27,7 +27,7 @@ docs/build-versions.md      Reviewed build/runtime versions
 WORKLOG.md                  Current open tasks and handoff status
 ```
 
-The backend serves the API and static UI on port `8080`. MariaDB is the runtime default; tests use H2. The Vite development server proxies `/api` to `http://localhost:8080`. See [`docs/README.md`](docs/README.md) for architecture documentation.
+The React UI is organized by feature under `frontend/src/features/`; app navigation and shared UI/API utilities live under `app/` and `shared/`. In deployment, Nginx serves the static UI and reverse-proxies `/api` and `/q` to the separately running Quarkus API. MariaDB is the runtime default; tests use H2. The Vite development and preview servers proxy `/api` and `/q` to Quarkus. See [`docs/README.md`](docs/README.md) for architecture documentation.
 
 ## Prerequisites
 
@@ -42,24 +42,25 @@ The backend serves the API and static UI on port `8080`. MariaDB is the runtime 
 The default build runs locally and does not require Podman:
 
 ```bash
-scripts/build.sh              # Local frontend and Quarkus package build; no image
+scripts/build.sh              # Build frontend/dist and Quarkus package independently; no image
 scripts/test.sh               # Local backend tests
 scripts/test.sh -Dtest=TwxParserTest
 cd frontend && npm test       # Frontend component tests (Vitest + Testing Library)
 scripts/lint.sh               # Local ESLint
 scripts/lint.sh --fix
-scripts/build-frontend.sh     # Local UI build into Quarkus resources
-scripts/preview-local.sh      # Local app at 127.0.0.1:8080, using persistent Podman MariaDB
+scripts/build-frontend.sh     # Local UI build into frontend/dist
+scripts/preview-local.sh      # UI :8080 and API :8081, using persistent Podman MariaDB
 scripts/preview-local.sh --skip-db  # Reuse an already-running MariaDB unchanged
 scripts/start-db.sh            # Start only the MariaDB container; keep it running
-scripts/stop.sh --keep-db      # Stop the app but leave MariaDB running
-scripts/dev.sh --skip-db       # Host live reload without restarting MariaDB
+scripts/stop.sh --keep-db      # Stop frontend/API containers; leave MariaDB running
+scripts/dev.sh --skip-db       # Start API live reload; run Vite separately from frontend/
 ```
 
 Build containers only when explicitly requested:
 
 ```bash
 scripts/build-image.sh        # Package the local target/quarkus-app as a Podman image
+scripts/build-frontend-image.sh # Package frontend/dist as a separate Nginx image
 scripts/build-container.sh    # Full alternative build inside containers
 ```
 
@@ -73,23 +74,26 @@ npm run lint
 npm test
 ```
 
-Vite writes to `src/main/resources/META-INF/resources`, so the frontend build needs write access to the backend source tree.
+Vite writes to the ignored `frontend/dist` directory. It does not write into the Quarkus source tree. `TWXAV2_API_PROXY_TARGET` can override the local Vite proxy target; its default is `http://localhost:8080`.
 
 ## Run with Podman
 
-After explicitly building the image with `scripts/build-image.sh`:
+Build the independently deployable API and frontend images, then start the Podman stack:
 
 ```bash
+scripts/build.sh
+scripts/build-image.sh
+scripts/build-frontend-image.sh
 scripts/run.sh
 ```
 
-The application is available at <http://127.0.0.1:8080>; Swagger UI is at `/q/swagger-ui`. MariaDB 11.8.9 is published on `127.0.0.1:8081`. Database files persist under `data/mariadb`; credentials and uploaded TWX archives are under `data/db.env` and `data/uploads`. All of `data/` is excluded from Git. Stop only the app while retaining the database with `scripts/stop.sh --keep-db`; stop both containers with:
+Nginx serves the UI on <http://127.0.0.1:8080> and proxies `/api` and `/q` to the Quarkus API container, which is not published directly to the host. Swagger UI is available at `/q/swagger-ui`. MariaDB 11.8.9 is published on `127.0.0.1:8081`. Database files persist under `data/mariadb`; credentials and uploaded TWX archives are under `data/db.env` and `data/uploads`. All of `data/` is excluded from Git. Stop the frontend and API while retaining the database with `scripts/stop.sh --keep-db`; stop the full stack with:
 
 ```bash
 scripts/stop.sh
 ```
 
-To start the containerized app without changing an already-running database, use `scripts/run.sh --skip-db`. `scripts/dev.sh` and `scripts/preview-local.sh` also accept `--skip-db` (or `TWXAV2_SKIP_DB=1`) and leave MariaDB running when the host app stops. Quarkus tests use an ephemeral HTTP test port so they can run while MariaDB retains port `8081`.
+To start the containerized stack without changing an already-running database, use `scripts/run.sh --skip-db`. `scripts/dev.sh` and `scripts/preview-local.sh` also accept `--skip-db` (or `TWXAV2_SKIP_DB=1`) and leave MariaDB running when the host processes stop. Quarkus tests use an ephemeral HTTP test port so they can run while MariaDB retains port `8081`.
 
 See [`docs/build-versions.md`](docs/build-versions.md) for the reviewed versions and the MariaDB exception.
 
@@ -111,6 +115,8 @@ All defaults and environment variables are listed in [`src/main/resources/applic
 | `GATE_MAX_CRITICAL`, `GATE_MAX_MAJOR`, `GATE_MIN_HEALTH` | Quality gate defaults | `0`, `-1` (unchecked), `70` |
 | `MARIADB_IMAGE` | Optional MariaDB image for `scripts/run.sh` | `docker.io/library/mariadb:11.8.9`; major upgrades require backup/restore testing |
 
+The separately deployed Nginx frontend accepts `API_UPSTREAM` as a `host:port` value (default `twxav2-app:8080` on the Podman network). Its request-body limit is 500 MB and should remain aligned with the Quarkus limit.
+
 All persistent local state is stored in the repository's Git-ignored `data/` directory. First-time setup creates `data/db.env`, `data/uploads/`, and `data/mariadb/`. The scripts resolve `TWXAV2_DATA_DIR` to this directory and reject other locations. Existing Podman volume data must be migrated with `scripts/migrate-db-volume.sh` while MariaDB is stopped; verify the bind-mounted DB before removing the old volume. Never commit credentials, tokens, or TWX files. In particular, `API_TOKEN` does not provide global application authentication.
 
 ### Database-secret rotation and recovery
@@ -121,4 +127,4 @@ For recovery, restore a mutually consistent database backup and its matching `DB
 
 ## License and third-party notices
 
-The project includes [`LICENSE`](LICENSE), [`NOTICE`](NOTICE), and the resolved [`third-party dependency inventory`](docs/THIRD-PARTY-NOTICES.md). Include these notices when redistributing the source or container image. The inventory covers all declared Maven dependency scopes (including tests) and all npm lockfile packages (including dev tooling), records package versions and license metadata, and identifies the key runtime LGPL/MPL components. It is metadata-based and is not a legal opinion; review applicable upstream license terms before redistribution. Regenerate it after dependency changes with the Maven license plugin and `python scripts/third-party-notices.py`.
+The project includes [`LICENSE`](LICENSE), [`NOTICE`](NOTICE), and the resolved [`third-party dependency inventory`](docs/THIRD-PARTY-NOTICES.md). Include these notices when redistributing the source or either container image. The inventory covers all declared Maven dependency scopes (including tests) and all npm lockfile packages (including dev tooling), records package versions and license metadata, and identifies the key runtime LGPL/MPL components. It is metadata-based and is not a legal opinion; review applicable upstream license terms before redistribution. Regenerate it after dependency changes with the Maven license plugin and `python scripts/third-party-notices.py`.

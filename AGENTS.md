@@ -11,7 +11,7 @@
 
 ## Changes
 
-- Preserve the existing layers and naming conventions. Keep backend API contracts in sync with the types and calls in `frontend/src/api.ts`.
+- Preserve the existing layers and naming conventions. Keep backend API contracts in sync with the types and calls in `frontend/src/shared/api.ts`.
 - Register new rules through the existing rule mechanism and add focused tests.
 - Do not commit TWX exports, credentials, tokens, database files, or generated build outputs.
 - Never refer to developer-local test data in repository documentation or code. Do not include local test-file paths, filenames, contents, or identifying metadata; tests must use generated synthetic data or sanitized fixtures maintained in the test tree.
@@ -21,9 +21,9 @@
 
 ## Build and tests
 
-The default entry points `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, `scripts/dev.sh`, and `scripts/preview-local.sh` run locally. `scripts/dev.sh` and `scripts/preview-local.sh` use the persistent Podman MariaDB; use `--skip-db` or `TWXAV2_SKIP_DB=1` to require the existing service without restarting it. `scripts/start-db.sh` starts only MariaDB, and `scripts/stop.sh --keep-db` stops only the app. Podman is also needed for `scripts/run.sh`, `scripts/build-image.sh`, and `scripts/build-container.sh`. Frontend dependencies are defined by `frontend/package.json` and `frontend/package-lock.json`.
+The default entry points `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, `scripts/dev.sh`, and `scripts/preview-local.sh` run locally. `scripts/dev.sh` and `scripts/preview-local.sh` use the persistent Podman MariaDB; use `--skip-db` or `TWXAV2_SKIP_DB=1` to require the existing service without restarting it. `scripts/start-db.sh` starts only MariaDB, and `scripts/stop.sh --keep-db` stops the frontend and API while leaving MariaDB running. Podman is also needed for `scripts/run.sh`, `scripts/build-image.sh`, `scripts/build-frontend-image.sh`, and `scripts/build-container.sh`. Frontend dependencies are defined by `frontend/package.json` and `frontend/package-lock.json`.
 
-The root Maven project is `pom.xml`. Local builds use JDK 25 and Maven 3.10.0; the frontend uses Node.js 24.22.1 and npm 12.2.1. The optional runtime image is defined by `Containerfile`. Review manifests and affected scripts together when changing build or runtime behavior.
+The root Maven project is `pom.xml`. Local builds use JDK 25 and Maven 3.10.0; the frontend uses Node.js 24.22.1 and npm 12.2.1. The API and frontend runtime images are defined by `Containerfile` and `Containerfile.frontend`. Review manifests and affected scripts together when changing build or runtime behavior.
 
 License notices are in `LICENSE` and `NOTICE`. Preserve these files when redistributing; do not infer complete Maven/npm dependency licensing from the short list in `NOTICE` alone.
 

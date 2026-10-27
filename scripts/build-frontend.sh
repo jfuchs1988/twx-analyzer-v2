@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the frontend locally (Vite) into src/main/resources/META-INF/resources.
+# Build the frontend locally into frontend/dist for independent deployment.
 set -euo pipefail
 
 if [ -n "${MSYSTEM:-}" ]; then
@@ -11,7 +11,6 @@ source "$REPO/scripts/local-toolchain.sh"
 twxav2_use_local_toolchain "$REPO"
 twxav2_require_node_npm
 echo "== Frontend build =="
-mkdir -p "$REPO/src/main/resources/META-INF/resources"
 if ! command -v npm >/dev/null 2>&1; then
   echo "ERROR: npm not found. Node.js 24.22.1 and npm 12.2.1 are required." >&2
   exit 1
@@ -23,4 +22,4 @@ if [ ! -f node_modules/.package-lock.json ] \
   npm ci --no-audit --no-fund
 fi
 npm run build
-echo "Done: META-INF/resources updated."
+echo "Done: frontend/dist updated."

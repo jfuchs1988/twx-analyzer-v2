@@ -1,4 +1,4 @@
-# twxav2 runtime image (package built by scripts/build.sh)
+# twxav2 API runtime image (package built by scripts/build.sh)
 FROM docker.io/library/eclipse-temurin:25-jre
 WORKDIR /app
 COPY LICENSE NOTICE ./

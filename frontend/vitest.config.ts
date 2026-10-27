@@ -1,8 +1,13 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react";
+import { createBackendProxy } from "./vite.shared.ts";
+
+const srcDirectory = fileURLToPath(new URL("./src", import.meta.url));
 
 export default defineConfig({
-  plugins: [react()],
+  resolve: { alias: { "@": srcDirectory } },
+  server: { proxy: createBackendProxy() },
+  preview: { proxy: createBackendProxy() },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],

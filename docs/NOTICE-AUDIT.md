@@ -19,7 +19,7 @@ The root `LICENSE` is the Apache-2.0 license text with this project's copyright 
 ## Distribution locations
 
 - The root `LICENSE` and `NOTICE` remain part of the source repository.
-- `Containerfile` copies both files into the application image (`/app/LICENSE`, `/app/NOTICE`) so the documented container distribution carries the license and attribution.
+- `Containerfile` copies both files and the resolved dependency inventory into the API image; `Containerfile.frontend` copies them into the frontend image so both independently distributed images carry the license and attribution notices.
 - Derived Java files contain brief provenance/modification notices; detailed attribution and license terms are in `NOTICE` and `LICENSE`.
 
 ## Dependency license inventory (reviewed 2026-10-27)

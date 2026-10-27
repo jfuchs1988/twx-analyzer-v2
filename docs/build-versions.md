@@ -26,6 +26,7 @@
 | Frontend component testing | Vitest 5.0.5, Testing Library React 16.3.3, user-event 14.6.8, jest-dom 7.0.1, jsdom 30.1.3 | Resolved versions in `frontend/package-lock.json`; used by `npm test` |
 | PostCSS | 8.5.32 | Current patch; Mantine preset 1.18.0 and simple-vars 7.0.1 |
 | Runtime JRE image | `eclipse-temurin:25-jre` | Tracks current patches on the Java 25 LTS line |
+| Frontend runtime image | `nginx:1.29-alpine` | Official Nginx Alpine image for separately serving Vite assets and proxying the API |
 | Podman CLI (local) | 6.1.4 | Latest stable release checked on 2026-10-27; Podman has no LTS track and is not pinned by the project |
 | MariaDB | 11.8.9 LTS | Newest patch on the existing 11.x line; no automatic switch to a new major with a persistent database volume |
 
@@ -51,9 +52,9 @@ MariaDB 12.3.3 is also an LTS line and is newer. The current MariaDB 11.8.9 data
 
 ## Local build
 
-The build, backend tests, frontend component tests (`npm test`), and frontend lint run locally without Podman. The local preview and live-reload scripts use Podman MariaDB; image creation requires the explicit `scripts/build-image.sh` or `scripts/build-container.sh` commands. The verified portable tools are in the ignored `temp/toolchain/` directory and are not part of the distribution.
+The build, backend tests, frontend tests (`npm test`), and frontend lint run locally without Podman. The local preview and live-reload scripts use Podman MariaDB; separate API and frontend images are created only by the explicit image build scripts. The verified portable tools are in the ignored `temp/toolchain/` directory and are not part of the distribution.
 
-On 2026-10-27, the Vite production build, ESLint, all 4 Vitest component tests, Quarkus package build, all 459 backend tests, and the JaCoCo gate passed. The Podman MariaDB-backed host preview also passed a health check and UI/API smoke check in the prior verified run. The optional application image and MariaDB 12.3 migration test were not run for this task.
+On 2026-10-27, the Vite production build, ESLint, all 9 Vitest tests, Quarkus package build, all 459 backend tests, and the JaCoCo gate passed. Podman is unavailable in this environment, so separate container image builds, Nginx runtime checks, and the MariaDB-backed split preview were not run. The MariaDB 12.3 migration test was also not run.
 
 ## Sources
 
