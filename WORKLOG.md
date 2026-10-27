@@ -4,13 +4,13 @@ This file is a current handoff, not a changelog. Resolved work is removed after 
 
 ## Current focus
 
-**As of:** 2026-10-27 · **Status:** Documentation cleanup and static code review are complete. Podman MariaDB and the host preview are running; the preview reused the existing DB with `--skip-db`. Git `origin` is connected and fetched; branch alignment and first commit are pending.
+**As of:** 2026-10-27 | **Status:** Documentation cleanup and static review are complete. The project was pushed to `develop` through a bootstrap task branch; remote `main` remains unchanged and `master` is reserved for a release.
 
-**Latest verification:** `scripts/build.sh` passed; all 453 backend tests and the JaCoCo gate passed; modified shell scripts pass `bash -n`. A focused `DbSmokeTest` also passed while MariaDB remained running. Frontend ESLint passed after the recent UI changes. Podman health checks and local UI/API HTTP 200 checks passed with `--skip-db`; the same MariaDB container remained running. All 33 Markdown files have zero broken relative links.
+**Latest verification:** `scripts/build.sh` passed; all 453 backend tests and the JaCoCo gate passed; modified shell scripts pass `bash -n`. Frontend ESLint passed after recent UI changes. Podman health checks and UI/API HTTP 200 checks passed. All 33 Markdown files have zero broken relative links.
 
-Persistent MariaDB files, credentials, and uploads are under Git-ignored `data/mariadb`, `data/db.env`, and `data/uploads` in the checkout. The old named Podman volume was migrated and removed after verifying the bind-mounted DB; no active database copy remains outside `data/`. The MariaDB database is fresh; the previous H2 preview had no persistent snapshot metadata, so preserved archives must be re-imported if needed. Start the host preview with `scripts/preview-local.sh --skip-db`; Ctrl+C stops the app but leaves MariaDB running. `scripts/stop.sh` stops Podman containers; `data/` remains. Podman is available via Podman Desktop and the helper resolves its CLI path automatically.
+Persistent MariaDB files, credentials, and uploads are under Git-ignored `data/mariadb`, `data/db.env`, and `data/uploads`. The old named Podman volume was migrated and removed after verifying the bind-mounted DB. The MariaDB database is fresh; the previous H2 preview had no persistent snapshot metadata, so preserved archives must be re-imported if needed. The host preview runs with `scripts/preview-local.sh --skip-db`; stopping the app leaves MariaDB running.
 
-Git is initialized on local branch `main` with `origin` set to the requested GitHub URL; `origin/main` was fetched. The current workspace has no local commit and has not been merged with or pushed to the remote; compare/reconcile it before the first commit.
+Git workflow: local `develop` tracks `origin/develop`; the bootstrap task branch was merged and pushed. Remote `main` was left unchanged by request. No `master` release branch was created.
 
 ## Open tasks
 
@@ -29,4 +29,3 @@ Git is initialized on local branch `main` with `origin` set to the requested Git
 | W-011 | Medium | Add a frontend component-test harness for critical settings, upload, and status flows; the frontend currently defines build/lint scripts but no test script. | `frontend/package.json`, `frontend/src/pages/RuleSettingsPage.tsx` | Open |
 | W-012 | Medium | Define a coverage strategy for Quarkus runtime/API classes. The JaCoCo gate does not instrument some `@QuarkusTest` classes loaded through `QuarkusClassLoader`; the line threshold should not be treated as whole-application coverage. | `pom.xml` JaCoCo configuration | Open |
 | W-013 | Low | Add CI automation for the existing local build, backend test, and frontend lint entry points; no checked-in CI workflow was found. | `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh` | Open |
-| W-014 | Medium | Reconcile the initialized local checkout with the existing remote `main` commit and establish the `develop`/`master` branch workflow before committing or pushing. | `origin/main`, `AGENTS.md` Git workflow | Waiting for branch mapping |
