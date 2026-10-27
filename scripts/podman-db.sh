@@ -23,7 +23,7 @@ twxav2_ensure_podman_db() {
   local mode="${2:-start}"
   local network="twxav2"
   local db="twxav2-db"
-  local image="${MARIADB_IMAGE:-docker.io/library/mariadb:11.8.9}"
+  local image="${MARIADB_IMAGE:-docker.io/library/mariadb:12.3.3}"
   local running=false
   local existing_data=false
   local storage_label=""
@@ -83,6 +83,7 @@ twxav2_ensure_podman_db() {
     -e MYSQL_DATABASE=twxav2 \
     -e MYSQL_USER=twxav2 \
     -e MYSQL_PASSWORD="$DB_PASSWORD" \
+    -e MARIADB_AUTO_UPGRADE=1 \
     -v "$TWXAV2_DATA_DIR_HOST/mariadb:/var/lib/mysql:z" \
     "$image" >/dev/null
 

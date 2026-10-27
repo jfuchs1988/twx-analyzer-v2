@@ -90,8 +90,8 @@ export default function SettingsPage() {
 
       <TextInput
         label={tr("Basis-URL", "Base URL")}
-        description={tr("Kontextwurzel der BPM-Instanz, z. B. https://bpm.example.dir/BPM",
-                        "Context root of the BPM instance, e.g. https://bpm.example.dir/BPM")}
+        description={tr("HTTPS-Kontextwurzel. Der Ursprung muss BPM_ALLOWED_ORIGINS entsprechen; ohne Allowlist gilt BPM_DEFAULT_BASE_URL.",
+                        "HTTPS context root. Its origin must match BPM_ALLOWED_ORIGINS; without an allowlist, BPM_DEFAULT_BASE_URL is used.")}
         value={baseUrl}
         onChange={(e) => setBaseUrl(e.currentTarget.value)}
       />

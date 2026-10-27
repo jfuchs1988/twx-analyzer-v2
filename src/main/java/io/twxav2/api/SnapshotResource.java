@@ -92,16 +92,36 @@ public class SnapshotResource {
             replacedId = dupByName.id;
         }
         long size = form.file.size();
-        // The multipart temp file only lives until the request ends -> copy to our own temp file
-        // so ingestion can run in the queue in parallel with the response.
-        java.nio.file.Path tmp = java.nio.file.Files.createTempFile("upload-queue-", ".twx");
-        java.nio.file.Files.copy(form.file.uploadedFile(), tmp,
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        String dedupKey = "file:" + fileName;
+        if (ingestQueue.isPending(dedupKey)) {
+            return Response.status(409).entity(Map.of(
+                    "error", "Datei „" + fileName + "“ liegt bereits in der Warteschlange")).build();
+        }
+        io.twxav2.service.IngestQueue.Reservation reservation = ingestQueue.reserve(size);
+        if (reservation == null) {
+            return Response.status(429).entity(Map.of(
+                    "error", "Importwarteschlange oder temporaeres Speicherbudget voll; spaeter erneut versuchen")).build();
+        }
+        // Reserve capacity before copying the multipart temp file into application staging.
+        java.nio.file.Path tmp = null;
+        try {
+            tmp = ingestService.createStagingFile("upload-queue-", ".twx");
+            java.nio.file.Files.copy(form.file.uploadedFile(), tmp,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            reservation.close();
+            deleteStagingQuietly(tmp);
+            throw e;
+        }
+        final java.nio.file.Path staged = tmp;
         final Long oldId = replacedId;
-        Long taskId = ingestQueue.submit(fileName, "file:" + fileName,
-                io.twxav2.service.IngestQueue.Phase.UPLOAD, task -> {
+        Long taskId;
+        try {
+            taskId = ingestQueue.submit(fileName, dedupKey,
+                io.twxav2.service.IngestQueue.Phase.UPLOAD, reservation,
+                () -> deleteStagingQuietly(staged), task -> {
                     try {
-                        Snapshot s = ingestService.ingest(fileName, size, tmp, task::advance);
+                        Snapshot s = ingestService.ingest(fileName, size, staged, task::advance);
                         if (s.status == Snapshot.Status.ERROR) {
                             task.fail(s.statusMessage);
                             return null;
@@ -118,14 +138,20 @@ public class SnapshotResource {
                         task.fail(e.getClass().getSimpleName() + ": " + e.getMessage());
                         return null;
                     } finally {
-                        try {
-                            java.nio.file.Files.deleteIfExists(tmp);
-                        } catch (java.io.IOException ignored) {
-                        }
+                        deleteStagingQuietly(staged);
                     }
                 });
+        } catch (io.twxav2.service.IngestQueue.QueueFullException e) {
+            deleteStagingQuietly(staged);
+            return Response.status(429).entity(Map.of(
+                    "error", "Importwarteschlange voll; spaeter erneut versuchen")).build();
+        } catch (RuntimeException e) {
+            reservation.close();
+            deleteStagingQuietly(staged);
+            throw e;
+        }
         if (taskId == null) {
-            java.nio.file.Files.deleteIfExists(tmp);
+            deleteStagingQuietly(staged);
             return Response.status(409).entity(Map.of("error",
                     "Datei „" + fileName + "“ liegt bereits in der Warteschlange")).build();
         }
@@ -165,8 +191,20 @@ public class SnapshotResource {
         }
         String fileName = s.filename;
         long size = java.nio.file.Files.size(stored);
-        Long taskId = ingestQueue.submit(fileName, "file:" + fileName,
-                io.twxav2.service.IngestQueue.Phase.UPLOAD, task -> {
+        String dedupKey = "file:" + fileName;
+        if (ingestQueue.isPending(dedupKey)) {
+            return Response.status(409).entity(Map.of(
+                    "error", "Datei „" + fileName + "“ liegt bereits in der Warteschlange")).build();
+        }
+        io.twxav2.service.IngestQueue.Reservation reservation = ingestQueue.reserve(size);
+        if (reservation == null) {
+            return Response.status(429).entity(Map.of(
+                    "error", "Importwarteschlange oder temporaeres Speicherbudget voll; spaeter erneut versuchen")).build();
+        }
+        Long taskId;
+        try {
+            taskId = ingestQueue.submit(fileName, dedupKey,
+                io.twxav2.service.IngestQueue.Phase.UPLOAD, reservation, null, task -> {
                     try {
                         // ingest() moves the file under a new timestamp-based name;
                         // on an error before that the archive is kept, so no deletion.
@@ -181,6 +219,13 @@ public class SnapshotResource {
                         return null;
                     }
                 });
+        } catch (io.twxav2.service.IngestQueue.QueueFullException e) {
+            return Response.status(429).entity(Map.of(
+                    "error", "Importwarteschlange voll; spaeter erneut versuchen")).build();
+        } catch (RuntimeException e) {
+            reservation.close();
+            throw e;
+        }
         if (taskId == null) {
             return Response.status(409).entity(Map.of("error",
                     "Datei „" + fileName + "“ liegt bereits in der Warteschlange")).build();
@@ -190,6 +235,16 @@ public class SnapshotResource {
         // is lost if the app restarts between enqueue and ingestion.
         return Response.status(202)
                 .entity(Map.of("taskId", taskId, "replacedSnapshotId", id)).build();
+    }
+
+    private static void deleteStagingQuietly(java.nio.file.Path path) {
+        if (path == null) {
+            return;
+        }
+        try {
+            java.nio.file.Files.deleteIfExists(path);
+        } catch (java.io.IOException ignored) {
+        }
     }
 
     /**
@@ -576,24 +631,92 @@ public class SnapshotResource {
         return out;
     }
 
+    private static final int TOOLKIT_GRAPH_BATCH_SIZE = 500;
+
+    private record ToolkitGraphData(
+            java.util.Map<Long, java.util.Map<String, ToolkitDependency>> rootsBySnapshot,
+            java.util.Map<String, List<ToolkitNest>> nestsByParent,
+            java.util.Map<String, ToolkitSnapshot> toolkitsById,
+            java.util.Map<String, ToolkitNest> declarationByChild) { }
+
+    /** Load roots, nested edges, and toolkit rows in batches rather than once per node/app. */
+    private ToolkitGraphData loadToolkitGraphData(List<Long> snapshotIds) {
+        java.util.Map<Long, java.util.Map<String, ToolkitDependency>> rootsBySnapshot = new java.util.HashMap<>();
+        for (Long id : snapshotIds) {
+            rootsBySnapshot.put(id, new java.util.LinkedHashMap<>());
+        }
+        for (List<Long> batch : chunks(snapshotIds)) {
+            for (ToolkitDependency dependency : ToolkitDependency.<ToolkitDependency>find(
+                    "snapshot.id in ?1", Sort.by("rank").ascending(), batch).list()) {
+                String id = dependency.toolkit != null ? dependency.toolkit.id : dependency.toolkitId;
+                if (id != null) {
+                    rootsBySnapshot.computeIfAbsent(dependency.snapshot.id, key -> new java.util.LinkedHashMap<>())
+                            .putIfAbsent(id, dependency);
+                }
+            }
+        }
+
+        java.util.Set<String> discovered = new java.util.LinkedHashSet<>();
+        for (java.util.Map<String, ToolkitDependency> roots : rootsBySnapshot.values()) {
+            discovered.addAll(roots.keySet());
+        }
+        java.util.Set<String> frontier = new java.util.LinkedHashSet<>(discovered);
+        java.util.Map<String, List<ToolkitNest>> nestsByParent = new java.util.HashMap<>();
+        java.util.Map<String, ToolkitNest> declarationByChild = new java.util.HashMap<>();
+        while (!frontier.isEmpty()) {
+            java.util.Set<String> next = new java.util.LinkedHashSet<>();
+            for (List<String> batch : chunks(frontier)) {
+                List<ToolkitNest> nests = ToolkitNest.<ToolkitNest>find(
+                        "parent.id in ?1", Sort.by("rank").ascending(), batch).list();
+                for (ToolkitNest nest : nests) {
+                    if (nest.parent == null || nest.parent.id == null) {
+                        continue;
+                    }
+                    nestsByParent.computeIfAbsent(nest.parent.id, key -> new ArrayList<>()).add(nest);
+                    if (nest.childToolkitId != null) {
+                        declarationByChild.putIfAbsent(nest.childToolkitId, nest);
+                        if (discovered.add(nest.childToolkitId)) {
+                            next.add(nest.childToolkitId);
+                        }
+                    }
+                }
+            }
+            frontier = next;
+        }
+
+        java.util.Map<String, ToolkitSnapshot> toolkitsById = new java.util.HashMap<>();
+        for (List<String> batch : chunks(discovered)) {
+            for (ToolkitSnapshot toolkit : ToolkitSnapshot.<ToolkitSnapshot>list("id in ?1", batch)) {
+                toolkitsById.put(toolkit.id, toolkit);
+            }
+        }
+        return new ToolkitGraphData(rootsBySnapshot, nestsByParent, toolkitsById, declarationByChild);
+    }
+
+    private static <T> List<List<T>> chunks(java.util.Collection<T> values) {
+        List<T> list = new ArrayList<>(values);
+        List<List<T>> result = new ArrayList<>();
+        for (int start = 0; start < list.size(); start += TOOLKIT_GRAPH_BATCH_SIZE) {
+            result.add(List.copyOf(list.subList(start,
+                    Math.min(list.size(), start + TOOLKIT_GRAPH_BATCH_SIZE))));
+        }
+        return result;
+    }
+
     /**
-     * The app's toolkit graph: declared toolkits plus their nested
-     * dependencies (recursive, cycle-safe). Conflicts = same acronym
-     * with different versions in the same graph (e.g. two toolkits pull
-     * the same sub-toolkit in different states).
+     * The app's toolkit graph: declared toolkits plus their nested dependencies (cycle-safe).
+     * Conflicts are same-acronym variants with different versions within the graph.
      */
     @GET
     @Path("{id}/toolkit-graph")
     @Transactional
     public dto.ToolkitGraphDto toolkitGraph(@PathParam("id") Long id) {
-        java.util.Map<String, ToolkitDependency> rootDeps = new java.util.LinkedHashMap<>();
-        for (ToolkitDependency d : ToolkitDependency
-                .<ToolkitDependency>find("snapshot.id = ?1", Sort.by("rank").ascending(), id).list()) {
-            String cid = d.toolkit != null ? d.toolkit.id : d.toolkitId;
-            if (cid != null) {
-                rootDeps.putIfAbsent(cid, d);
-            }
-        }
+        return toolkitGraph(id, loadToolkitGraphData(List.of(id)));
+    }
+
+    private dto.ToolkitGraphDto toolkitGraph(long snapshotId, ToolkitGraphData graph) {
+        java.util.Map<String, ToolkitDependency> rootDeps = graph.rootsBySnapshot()
+                .getOrDefault(snapshotId, java.util.Map.of());
         // BFS from manifest edges; depth = first-find depth, edges may repeat (many parents)
         java.util.Map<String, Integer> depth = new java.util.LinkedHashMap<>();
         List<dto.ToolkitGraphEdge> edges = new ArrayList<>();
@@ -607,11 +730,9 @@ public class SnapshotResource {
             frontier.add(e.getKey());
             edges.add(new dto.ToolkitGraphEdge("", e.getKey(), e.getValue().declaredVersion));
         }
-        List<ToolkitNest> allNests = new ArrayList<>();
         while (!frontier.isEmpty()) {
             String pid = frontier.poll();
-            List<ToolkitNest> nests = ToolkitNest.<ToolkitNest>find("parent.id = ?1", Sort.by("rank").ascending(), pid).list();
-            allNests.addAll(nests);
+            List<ToolkitNest> nests = graph.nestsByParent().getOrDefault(pid, List.of());
             for (ToolkitNest n : nests) {
                 String cid = n.childToolkitId;
                 if (cid == null || cid.equals(pid) || !seenEdge.add(pid + "|" + cid)) {
@@ -627,7 +748,7 @@ public class SnapshotResource {
         List<dto.ToolkitGraphNode> nodes = new ArrayList<>();
         for (var en : depth.entrySet()) {
             String cid = en.getKey();
-            ToolkitSnapshot t = ToolkitSnapshot.findById(cid);
+            ToolkitSnapshot t = graph.toolkitsById().get(cid);
             if (t != null) {
                 ToolkitDependency rd = rootDeps.get(cid);
                 nodes.add(new dto.ToolkitGraphNode(cid, t.projectAcronym, t.projectName, t.version,
@@ -642,7 +763,7 @@ public class SnapshotResource {
                 name = rd.declaredName;
                 ver = rd.declaredVersion;
             } else {
-                ToolkitNest nd = ToolkitNest.<ToolkitNest>find("childToolkitId = ?1", cid).firstResult();
+                ToolkitNest nd = graph.declarationByChild().get(cid);
                 if (nd != null) {
                     acr = nd.childAcronym;
                     name = nd.childName;
@@ -707,13 +828,13 @@ public class SnapshotResource {
     @Path("toolkit-conflicts")
     @Transactional
     public List<dto.AppToolkitConflicts> appToolkitConflicts() {
+        List<Snapshot> apps = Snapshot.<Snapshot>find(
+                "status = ?1 and (isToolkit is null or isToolkit = false) order by id desc",
+                Snapshot.Status.READY).list();
+        ToolkitGraphData graph = loadToolkitGraphData(apps.stream().map(s -> s.id).toList());
         List<dto.AppToolkitConflicts> out = new ArrayList<>();
-        for (Snapshot s : Snapshot.<Snapshot>find(
-                "status = ?1 order by id desc", Snapshot.Status.READY).list()) {
-            if (Boolean.TRUE.equals(s.isToolkit)) {
-                continue; // conflicts are relevant per process app
-            }
-            List<dto.ToolkitGraphConflict> cs = toolkitGraph(s.id).conflicts();
+        for (Snapshot s : apps) {
+            List<dto.ToolkitGraphConflict> cs = toolkitGraph(s.id, graph).conflicts();
             if (!cs.isEmpty()) {
                 String app = s.projectAcronym != null && !s.projectAcronym.isBlank()
                         ? s.projectAcronym : s.projectName;

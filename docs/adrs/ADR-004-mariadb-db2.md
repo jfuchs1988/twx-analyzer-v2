@@ -9,7 +9,7 @@ Local/containerized installations need an easily available relational database. 
 
 ## Decision
 
-- Default: MariaDB, currently configured with `quarkus.datasource.db-kind=mariadb`.
+- Default: MariaDB 12.3.3 LTS, configured with `quarkus.datasource.db-kind=mariadb`.
 - Hibernate ORM manages the schema with `generation=update`; Flyway is not used.
 - DB2 is a possible build/runtime path (`db-kind=db2`), but the DB2 driver and integration are not enabled in the current `pom.xml`.
 
@@ -24,4 +24,4 @@ Local/containerized installations need an easily available relational database. 
 
 - Schema changes can drift between installations; migrations need a separate strategy.
 - Implement and verify DB2 compatibility before production use.
-- A MariaDB major-version upgrade requires a backup and validation of the persistent data volume.
+- A MariaDB major-version upgrade requires a verified backup and validation before cut-over. Existing Windows bind-mounted datadirs are migrated through a tested logical backup/restore because the filesystem can reject MariaDB system-table permission updates during an in-place upgrade.

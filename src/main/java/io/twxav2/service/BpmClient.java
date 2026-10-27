@@ -72,6 +72,9 @@ public class BpmClient {
     @ConfigProperty(name = "twxav2.bpm.export-timeout-seconds", defaultValue = "600")
     int exportTimeoutSeconds;
 
+    @ConfigProperty(name = "twxav2.bpm.max-export-bytes", defaultValue = "2147483648")
+    long maxExportBytes;
+
     private final ObjectMapper mapper = new ObjectMapper();
     private volatile HttpClient http;
     private volatile String loadedCaPath;
@@ -79,6 +82,9 @@ public class BpmClient {
 
     @jakarta.inject.Inject
     SecretsCrypto secrets;
+
+    @jakarta.inject.Inject
+    BpmTargetPolicy targetPolicy;
 
     @Transactional
     public Creds creds() {
@@ -170,8 +176,7 @@ public class BpmClient {
             throw new BpmException("Export fehlgeschlagen (HTTP " + resp.statusCode() + "): " + body);
         }
         String filename = filenameFromDisposition(resp.headers().firstValue("content-disposition").orElse(""));
-        // Download with size cap (protect the disk): 2 GB
-        long limit = 2L * 1024 * 1024 * 1024;
+        // Download with a size cap so a remote export cannot fill staging storage.
         try (InputStream in = resp.body();
                 var out = java.nio.file.Files.newOutputStream(dest,
                         java.nio.file.StandardOpenOption.CREATE,
@@ -181,8 +186,8 @@ public class BpmClient {
             int n;
             while ((n = in.read(buf)) > 0) {
                 total += n;
-                if (total > limit) {
-                    throw new BpmException("Export zu gross (> 2 GB) — Abbruch");
+                if (total > maxExportBytes) {
+                    throw new BpmException("Export zu gross (Limit: " + maxExportBytes + " Bytes)");
                 }
                 out.write(buf, 0, n);
             }
@@ -190,6 +195,10 @@ public class BpmClient {
             throw new BpmException("Download-Schreibfehler: " + e.getMessage());
         }
         return new Exported(filename, dest.toFile().length());
+    }
+
+    public long maxExportBytes() {
+        return maxExportBytes;
     }
 
     public record ContainerInfo(String acronym, String name, boolean toolkit) { }
@@ -231,6 +240,7 @@ public class BpmClient {
     private <T> HttpResponse<T> doSend(Creds c, String path, int timeoutSeconds,
                                        HttpResponse.BodyHandler<T> handler, boolean stream) {
         try {
+            targetPolicy.validate(c.baseUrl());
             HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(c.baseUrl + path))
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .header("Authorization", basic(c))
@@ -263,6 +273,7 @@ public class BpmClient {
                 return csrfToken;
             }
             try {
+                targetPolicy.validate(c.baseUrl());
                 HttpRequest req = HttpRequest.newBuilder(URI.create(c.baseUrl + "/ops/system/login"))
                         .timeout(Duration.ofSeconds(requestTimeoutSeconds))
                         .header("Authorization", basic(c))

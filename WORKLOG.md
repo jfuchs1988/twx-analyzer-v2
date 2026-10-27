@@ -4,21 +4,16 @@ This file is a current handoff, not a changelog. Resolved work is removed after 
 
 ## Current focus
 
-**As of:** 2026-10-27 | **Status:** The selected security/quality work and feature-based frontend modularization with separate Nginx/API deployment are merged into local `develop` at `a1bea7f`. Local `develop` is two commits ahead of `origin/develop`. The isolated MariaDB 11.8.9-to-12.3.3 test-volume upgrade passed; the existing database remains on 11.8.9.
+**As of:** 2026-10-27 | **Status:** Release candidate `v2.0.0` is on `task/release-v2.0.0`, based on local `develop` at `7beaac0`. W-001, W-004, W-005, W-006, W-007, and W-010 are addressed; the GitHub Actions workflow for W-013 is configured. Local `develop` is four commits ahead of `origin/develop`; develop/main merges, pushes, and the release tag are pending.
 
-**Latest verification:** `scripts/build.sh` passed; all 459 backend tests and the JaCoCo gate passed. All 9 Vitest tests and ESLint passed. Both Podman images built; the Nginx frontend smoke test returned HTTP 200. Synthetic MariaDB 11.8.9 test data was copied to an isolated volume and upgraded with 12.3.3; integrity checks passed and the preserved 11.8.9 copy remained readable. The live database was not changed. Full API/proxy/database runtime validation remains open.
+**Latest verification:** `scripts/build.sh` passed; all 468 backend tests and the JaCoCo gate passed. All 9 Vitest tests, ESLint, and the frontend build passed. Both Podman images built; the UI/API/OpenAPI smoke test passed against the existing MariaDB 12.3.3 database. The active database passes `mariadb-check`; its 11.8.9 rollback copy is retained. The local DB container is stopped as requested; restart the existing database with `scripts/start-db.sh` when needed.
 
-Persistent MariaDB files, credentials, and uploads are under Git-ignored `data/mariadb`, `data/db.env`, and `data/uploads`. The old named Podman volume was migrated and removed after verifying the bind-mounted DB. The MariaDB database is fresh; the previous H2 preview had no persistent snapshot metadata, so preserved archives must be re-imported if needed. The host preview runs with `scripts/preview-local.sh --skip-db`; stopping the app leaves MariaDB running.
+No application login is implemented by design: deployment is restricted to a closed trusted intranet. BAW credentials require HTTPS and a configured trusted origin. `scripts/upgrade-mariadb.sh` is the backup/restore path for existing 11.8.x datadirs; do not switch a Windows bind-mounted old datadir in place.
 
-Git workflow: the local `develop` merge has not been pushed to `origin/develop`.
+Git workflow: use local `main` (the repository has no `master` branch); the release candidate has not been pushed or tagged yet. The GitHub Actions workflow is configured; its first remote run awaits the push.
 
 ## Open tasks
 
 | ID | Priority | Task | Reference | Status |
 | --- | --- | --- | --- | --- |
-| W-001 | High | Define authentication and authorization for all API endpoints before exposing the application beyond a protected local network. The optional token only guards exports; unauthenticated BPM settings and test/import endpoints can redirect stored Basic credentials to a caller-selected host. Require HTTPS and a trusted-target policy as part of the fix. | `ApiTokenFilter`, `BpmResource`, `BpmClient`, arc42 §§3/8/11 | Open |
-| W-004 | Medium | Bound aggregate TWX expansion/content, per-object payload accumulation, queued uploads, and temporary-storage usage; close ZIP entry streams and test disk-full/restart behavior. Existing limits are primarily per request, entry, or toolkit, not an end-to-end aggregate budget. | `TwxParser`, `SnapshotResource`, `IngestQueue`, `application.properties`, arc42 §11 | Open |
-| W-005 | Medium | Decide whether to reactivate the historical build-CA decision in ADR-008; it is not implemented in the current build. | `docs/adrs/ADR-008-historical-build-ca.md`, build environment | Open |
-| W-006 | Medium | Validate the full separate frontend/API/database runtime in the target environment. | `scripts/run.sh`, `deploy/nginx/default.conf.template`, `Containerfile`, `Containerfile.frontend` | Images built and frontend HTTP smoke-tested locally; API/proxy/database integration remains open |
-| W-010 | Medium | Batch toolkit graph/inventory lookups; the all-app conflict view recomputes each app graph and the graph traversal queries nested edges and toolkit rows per node. Profile representative large inventories first. | `SnapshotResource.toolkitGraph`, `ToolkitResource.list` | Open |
-| W-013 | Low | Add CI automation for the existing local build, backend test, and frontend lint entry points; no checked-in CI workflow was found. | `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh` | Open |
+| W-013 | Low | Confirm the configured GitHub Actions workflow on the first remote run. | `.github/workflows/ci.yml` | Pending push; local equivalent build/test/lint checks passed |

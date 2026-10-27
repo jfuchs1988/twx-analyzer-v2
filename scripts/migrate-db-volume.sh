@@ -14,7 +14,7 @@ twxav2_init_data_dir "$REPO"
 
 DB="twxav2-db"
 VOLUME="twxav2-dbdata"
-IMAGE="${MARIADB_IMAGE:-docker.io/library/mariadb:11.8.9}"
+IMAGE="${MARIADB_IMAGE:-docker.io/library/mariadb:12.3.3}"
 
 if podman ps -f "name=$DB" --format '{{.Names}}' | grep -qx "$DB"; then
   echo "ERROR: Stop MariaDB first; the volume must not be copied while the database is running." >&2
@@ -37,4 +37,5 @@ podman run --rm --network none --user 0 \
 
 echo "Database files copied to $TWXAV2_DATA_DIR/mariadb."
 echo "The original Podman volume '$VOLUME' is retained as a rollback copy."
+echo "Start with the MariaDB image version that created the volume; if it is 11.8.x, run scripts/upgrade-mariadb.sh before switching to 12.3.3."
 echo "Start and verify MariaDB with scripts/start-db.sh; then remove the old volume with 'podman volume rm $VOLUME' if the copy is sound."

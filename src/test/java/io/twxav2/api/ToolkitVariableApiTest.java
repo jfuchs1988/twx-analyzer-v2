@@ -5,8 +5,10 @@ import io.twxav2.model.Snapshot;
 import io.twxav2.model.ToolkitSnapshot;
 import io.twxav2.support.ApiFixtures;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.hibernate.SessionFactory;
 
 import java.net.http.HttpResponse;
 
@@ -19,6 +21,9 @@ class ToolkitVariableApiTest {
 
     @Inject
     ApiFixtures fx;
+
+    @Inject
+    EntityManager em;
 
     @BeforeEach
     void roomOn() {
@@ -70,6 +75,32 @@ class ToolkitVariableApiTest {
         assertEquals(1, io.twxav2.model.ToolkitSnapshot.count("id", "2064.t2"),
                 "mit Referenz bleibt");
         assertTrue(get("/api/toolkits").body().contains("2064.t2"));
+    }
+
+    @Test
+    void conflictOverviewBatchesSharedToolkitGraphAcrossApps() throws Exception {
+        ToolkitSnapshot oldVersion = fx.toolkit("2064.graph-old", "SHARED", "1.0");
+        ToolkitSnapshot newVersion = fx.toolkit("2064.graph-new", "SHARED", "2.0");
+        ToolkitSnapshot nestedOld = fx.toolkit("2064.graph-nested-old", "NESTED", "1.0");
+        ToolkitSnapshot nestedNew = fx.toolkit("2064.graph-nested-new", "NESTED", "2.0");
+        fx.nest(oldVersion, nestedOld);
+        fx.nest(newVersion, nestedNew);
+        for (int i = 0; i < 24; i++) {
+            Snapshot app = fx.snapshot("FIXG" + i, "Graph app " + i, Snapshot.Status.READY);
+            fx.dependency(app, oldVersion);
+            fx.dependency(app, newVersion);
+        }
+
+        org.hibernate.stat.Statistics statistics = em.getEntityManagerFactory()
+                .unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+        String body = get("/api/snapshots/toolkit-conflicts").body();
+        long statements = statistics.getPrepareStatementCount();
+
+        assertEquals(24, java.util.regex.Pattern.compile("\\\"snapshotId\\\"")
+                .matcher(body).results().count(), body);
+        assertTrue(body.contains("SHARED") && body.contains("NESTED"), body);
+        assertTrue(statements <= 10, "expected batched graph reads, got " + statements + " SQL statements");
     }
 
     // ---------------- Variables ----------------

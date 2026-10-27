@@ -12,7 +12,7 @@ Rules implement the existing rule contract and are invoked by `RuleEngine` in ID
 
 ## Error and load behavior
 
-Ingest jobs run with bounded concurrency. The transaction timeout is configurable through `TX_TIMEOUT`. Search reads candidates in stable-ID pages of 32, checks the request budget between pages/objects, and clears each processed persistence-context page. A synthetic 4,096-object Quarkus regression test checks that a late match is returned within the 15-second maximum search budget. Per-rule failures are represented as findings; parser, database, or ingest failures can still fail the job.
+Ingest jobs use a bounded worker pool, bounded waiting queue, and byte reservations for active/waiting work. HTTP connections and individual request bodies are capped; multipart uploads are written to a dedicated temporary directory and deleted after each request. Application staging files share the upload filesystem; abandoned multipart and staging files are removed on startup. Parser budgets cap archive size, entry/object counts, total expanded content, retained text, and embedded toolkits. The parser closes ZIP entry streams. The transaction timeout is configurable through `TX_TIMEOUT`. Search reads candidates in stable-ID pages of 32, checks the request budget between pages/objects, and clears each processed persistence-context page. A synthetic 4,096-object Quarkus regression test checks that a late match is returned within the 15-second maximum search budget. Per-rule failures are represented as findings; parser, database, or ingest failures can still fail the job.
 
 ## Configuration and secrets
 
@@ -24,4 +24,4 @@ The frontend centralizes typed API calls in `frontend/src/shared/api.ts`. UI tex
 
 ## Security
 
-The API token filter limits optional protection to `/api/export`. Query-string tokens can appear in URLs/logs; prefer the header. The visible code does not provide general authentication for other endpoints. TLS trust and BAW credentials are configurable; deploy behind appropriate access controls before exposing the service to a network.
+There is intentionally no application login. The deployment requirement is a closed, trusted intranet; every reachable client can read and modify analyzer data and settings. The provided container stack binds the UI to loopback and keeps the API on its private Podman network; any alternate intranet publication must be limited by network ACLs to the trusted segment. The optional API token protects `/api/export` only; prefer its header over query parameters. BAW credentials are sent only over HTTPS to an explicitly allowed origin, redirects are disabled, and normal or configured PEM trust validation remains enabled.

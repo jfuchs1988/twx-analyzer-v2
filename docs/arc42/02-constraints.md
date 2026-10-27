@@ -6,7 +6,7 @@
 - Frontend: React 19, TypeScript 6, Vite 8, and Mantine 9; ESM/npm (`frontend/package.json`).
 - MariaDB is the configured runtime default; the test profile uses H2.
 - Local build scripts require Bash, JDK 25, Maven 3.10.0, Node 24.22.1, and npm 12.2.1. Podman is only required for optional image creation and container runtime operations.
-- The runtime image uses Eclipse Temurin 25 JRE; the MariaDB container is pinned to 11.8.9 within the existing database major line.
+- The runtime image uses Eclipse Temurin 25 JRE; the MariaDB container is pinned to the 12.3.3 LTS line. Existing 11.8.x Windows bind-mounted datadirs require the documented backup/restore migration rather than an in-place image switch.
 - Vite writes static assets to the independent `frontend/dist` build directory; the frontend container serves these assets separately from Quarkus.
 - The deployed frontend uses same-origin `/api` and `/q` paths through its reverse proxy; cross-origin CORS is not required for the standard deployment.
 - BAW integration uses the Operations REST API, TLS, and an optional PEM CA bundle.

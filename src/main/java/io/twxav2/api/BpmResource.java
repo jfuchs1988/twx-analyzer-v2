@@ -41,6 +41,9 @@ public class BpmResource {
     BpmClient bpm;
 
     @Inject
+    io.twxav2.service.BpmTargetPolicy bpmTargetPolicy;
+
+    @Inject
     IngestService ingestService;
 
     @Inject
@@ -75,7 +78,7 @@ public class BpmResource {
                 u = u.substring(0, u.length() - 1);
             }
             if (!u.isBlank()) {
-                validateBaseUrl(u);
+                bpmTargetPolicy.validate(u);
             }
             s.baseUrl = u.isBlank() ? null : u;
         }
@@ -93,41 +96,6 @@ public class BpmResource {
         s.persist();
         bpm.resetSession();
         return settingsGet();
-    }
-
-    /**
-     * Validate the base URL BEFORE stored basic-auth credentials are sent there:
-     * only http(s) without user info, no loopback/link-local — otherwise credentials
-     * could be redirected to a foreign or local eavesdropper via a settings PUT (SSRF).
-     */
-    private static void validateBaseUrl(String u) {
-        String err = null;
-        java.net.URI uri = null;
-        try {
-            uri = java.net.URI.create(u);
-        } catch (IllegalArgumentException e) {
-            err = "Syntax: " + e.getMessage();
-        }
-        if (uri != null) {
-            String scheme = uri.getScheme();
-            String host = uri.getHost();
-            if (scheme == null
-                    || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))
-                    || host == null || uri.getUserInfo() != null) {
-                err = "muss http(s)://host ohne Zugangsdaten sein";
-            } else {
-                String h = host.toLowerCase();
-                if (h.equals("localhost") || h.endsWith(".localhost")
-                        || h.startsWith("127.") || h.equals("0.0.0.0") || h.equals("::1")
-                        || h.startsWith("169.254.") || h.startsWith("[::1]")) {
-                    err = "Loopback/Link-Local ist nicht erlaubt";
-                }
-            }
-        }
-        if (err != null) {
-            throw new jakarta.ws.rs.WebApplicationException(Response.status(400)
-                    .entity(Map.of("error", "Ungueltige Basis-URL (" + err + ")")).build());
-        }
     }
 
     @POST
@@ -197,11 +165,22 @@ public class BpmResource {
         String acronym = in.acronym().trim();
         String version = in.version().trim();
         String dedupKey = "bpm:" + acronym.toLowerCase() + "/" + version.toLowerCase();
-        Long taskId = ingestQueue.submit(acronym + " · " + version, dedupKey,
-                io.twxav2.service.IngestQueue.Phase.EXPORT, task -> {
+        if (ingestQueue.isPending(dedupKey)) {
+            return Response.status(409).entity(Map.of(
+                    "error", acronym + " " + version + " liegt bereits in der Warteschlange")).build();
+        }
+        io.twxav2.service.IngestQueue.Reservation reservation = ingestQueue.reserve(bpm.maxExportBytes());
+        if (reservation == null) {
+            return Response.status(429).entity(Map.of(
+                    "error", "Importwarteschlange oder temporaeres Speicherbudget voll; spaeter erneut versuchen")).build();
+        }
+        Long taskId;
+        try {
+            taskId = ingestQueue.submit(acronym + " · " + version, dedupKey,
+                io.twxav2.service.IngestQueue.Phase.EXPORT, reservation, null, task -> {
                     java.nio.file.Path tmp = null;
                     try {
-                        tmp = Files.createTempFile("bpm-import-", ".twx");
+                        tmp = ingestService.createStagingFile("bpm-import-", ".twx");
                         BpmClient.Exported ex = bpm.exportSnapshot(bpm.creds(), acronym, version, tmp);
                         Snapshot s = ingestService.ingest(ex.filename(), ex.sizeBytes(), tmp, task::advance);
                         tmp = null; // ingest has moved the file
@@ -225,6 +204,13 @@ public class BpmResource {
                         }
                     }
                 });
+        } catch (io.twxav2.service.IngestQueue.QueueFullException e) {
+            return Response.status(429).entity(Map.of(
+                    "error", "Importwarteschlange voll; spaeter erneut versuchen")).build();
+        } catch (RuntimeException e) {
+            reservation.close();
+            throw e;
+        }
         if (taskId == null) {
             return Response.status(409).entity(Map.of("error",
                     acronym + " " + version + " liegt bereits in der Warteschlange")).build();
