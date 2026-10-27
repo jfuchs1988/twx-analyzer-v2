@@ -4,14 +4,14 @@ This file is a current handoff, not a changelog. Resolved work is removed after 
 
 ## Current focus
 
-**As of:** 2026-10-27 | **Status:** Release candidate source is merged and pushed to `develop` at `bd2edc5`; GitHub Actions run `40595644053` passed. All previous W-001 through W-013 items are resolved. The remaining release steps are merge to `main`, set the non-snapshot release version, tag `v2.0.0`, and publish the GitHub release.
+**As of:** 2026-10-27 | **Status:** v2.0.0 is released from `main` at tag [`v2.0.0`](https://github.com/jfuchs1988/twx-analyzer-v2/releases/tag/v2.0.0). `main` is version `2.0.0`; `develop` continues at `2.0.0-SNAPSHOT`. All previous W-001 through W-013 items are resolved.
 
-**Latest verification:** `scripts/build.sh` passed; all 468 backend tests and the JaCoCo gate passed. All 9 Vitest tests, ESLint, and the frontend build passed. Both Podman images built; the UI/API/OpenAPI smoke test passed against the existing MariaDB 12.3.3 database. The active database passed `mariadb-check`; an 11.8.9 rollback copy is retained. The local DB container is stopped as requested; restart the existing database with `scripts/start-db.sh` when needed. GitHub CI passed for the pushed `develop` commit.
+**Latest verification:** Release-version `scripts/build.sh` passed; all 468 backend tests and the JaCoCo gate passed. All 9 Vitest tests, ESLint, and the frontend build passed. Both Podman images built; the UI/API/OpenAPI smoke test passed against the existing MariaDB 12.3.3 database. The active database passed `mariadb-check`; an 11.8.9 rollback copy is retained. The local DB container is stopped as requested; restart that same datadir with `scripts/start-db.sh` when needed. GitHub Actions passed on both `develop` and `main`.
 
 No application login is implemented by design: deployment is restricted to a closed trusted intranet. BAW credentials require HTTPS and a configured trusted origin. `scripts/upgrade-mariadb.sh` is the backup/restore path for existing 11.8.x datadirs; do not switch a Windows bind-mounted old datadir in place.
 
-Git workflow: use `main` (the repository has no `master` branch). The release candidate is pushed to `develop`; `main` still awaits the confirmed release merge/tag.
+Git workflow: use `main` (the repository has no `master` branch). Tag `v2.0.0` and the GitHub release are published; no follow-up merge is pending.
 
 ## Open tasks
 
-No open implementation tasks. Release steps are listed above.
+No open tasks.
