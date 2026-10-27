@@ -59,7 +59,7 @@ scripts/stop.sh --keep-db      # Stop frontend/API containers; leave MariaDB run
 scripts/dev.sh --skip-db       # Start API live reload; run Vite separately from frontend/
 ```
 
-GitHub Actions runs the backend test/JaCoCo gate and package build plus frontend lint, tests, and production build on pushes and pull requests to `develop` and `main`. Publishing a stable GitHub Release also runs those checks, builds the API and frontend images, and pushes them to GHCR as `ghcr.io/jfuchs1988/twx-analyzer-v2-api` and `ghcr.io/jfuchs1988/twx-analyzer-v2-frontend` with release-version and `latest` tags. The workflow can also be started manually from **Actions → Publish release images → Run workflow** on `main`; that publishes `main`, commit-SHA, and `latest` tags. As this repository is private, the images are private by default; manage package access or visibility in the package settings. Dependabot checks Maven, npm, and GitHub Actions dependencies weekly; GitHub vulnerability alerts and security updates are enabled for the repository. See [`SECURITY.md`](SECURITY.md) to report a vulnerability privately.
+GitHub Actions runs the backend test/JaCoCo gate and package build plus frontend lint, tests, and production build on pushes and pull requests to `develop` and `main`. Publishing a stable GitHub Release also runs those checks, builds the API and frontend images, and pushes them to GHCR as `ghcr.io/jfuchs1988/twx-analyzer-v2-api` and `ghcr.io/jfuchs1988/twx-analyzer-v2-frontend` with release-version and `latest` tags. It attaches compressed image archives and `SHA256SUMS.txt` to the release page. The workflow can also be started manually from **Actions → Publish release images → Run workflow** on `main`; that publishes `main`, commit-SHA, and `latest` tags. To attach archives to an existing release, provide its tag in the manual run's `release_tag` input. As this repository is private, the GHCR images are private by default; manage package access or visibility in the package settings. Dependabot checks Maven, npm, and GitHub Actions dependencies weekly; GitHub vulnerability alerts and security updates are enabled for the repository. See [`SECURITY.md`](SECURITY.md) to report a vulnerability privately.
 
 Build containers locally only when explicitly requested:
 
@@ -69,7 +69,17 @@ scripts/build-frontend-image.sh # Package frontend/dist as a separate Nginx imag
 scripts/build-container.sh    # Full alternative build inside containers
 ```
 
-Stable GitHub Releases publish both runtime images to GHCR. Pull the release tag (for example `v2.0.0`) and tag the images with the local names expected by `scripts/run.sh`:
+Stable GitHub Releases publish both runtime images to GHCR and attach `twx-analyzer-v2-api-vX.Y.Z.tar.gz`, `twx-analyzer-v2-frontend-vX.Y.Z.tar.gz`, and `SHA256SUMS.txt` to the GitHub Release. For an offline install, download these assets, verify them, and load the images:
+
+```bash
+sha256sum -c SHA256SUMS.txt
+podman load -i twx-analyzer-v2-api-v2.0.0.tar.gz
+podman load -i twx-analyzer-v2-frontend-v2.0.0.tar.gz
+podman tag ghcr.io/jfuchs1988/twx-analyzer-v2-api:v2.0.0 twxav2-app:latest
+podman tag ghcr.io/jfuchs1988/twx-analyzer-v2-frontend:v2.0.0 twxav2-frontend:latest
+```
+
+Alternatively, pull the release tag (for example `v2.0.0`) and tag the images with the local names expected by `scripts/run.sh`:
 
 ```bash
 podman pull ghcr.io/jfuchs1988/twx-analyzer-v2-api:v2.0.0
