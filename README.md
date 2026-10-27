@@ -20,7 +20,9 @@ src/main/resources/         Quarkus configuration and rule text
 src/test/java/              Backend tests
 frontend/                   React/TypeScript UI (Vite), built independently
 scripts/                    Local build/test and optional Podman scripts
-.github/workflows/          GitHub Actions build, backend test, and frontend checks
+.github/workflows/          GitHub Actions CI, security checks, and release image publishing
+.github/dependabot.yml      Weekly Maven, npm, and GitHub Actions dependency updates
+SECURITY.md                 Private vulnerability reporting policy
 docs/arc42/                 Architecture documentation, one file per section
 docs/adrs/                  Architecture Decision Records
 docs/NOTICE-AUDIT.md        Upstream provenance and NOTICE audit
@@ -57,15 +59,26 @@ scripts/stop.sh --keep-db      # Stop frontend/API containers; leave MariaDB run
 scripts/dev.sh --skip-db       # Start API live reload; run Vite separately from frontend/
 ```
 
-GitHub Actions runs the backend test/JaCoCo gate and package build plus frontend lint, tests, and production build on pushes and pull requests to `develop` and `main`.
+GitHub Actions runs the backend test/JaCoCo gate and package build plus frontend lint, tests, and production build on pushes and pull requests to `develop` and `main`. Publishing a stable GitHub Release also runs those checks, builds the API and frontend images, and pushes them to GHCR as `ghcr.io/jfuchs1988/twx-analyzer-v2-api` and `ghcr.io/jfuchs1988/twx-analyzer-v2-frontend` with release-version and `latest` tags. As this repository is private, the images are private by default; manage package access or visibility in the package settings. Dependabot checks Maven, npm, and GitHub Actions dependencies weekly; GitHub vulnerability alerts and security updates are enabled for the repository. See [`SECURITY.md`](SECURITY.md) to report a vulnerability privately.
 
-Build containers only when explicitly requested:
+Build containers locally only when explicitly requested:
 
 ```bash
 scripts/build-image.sh        # Package the local target/quarkus-app as a Podman image
 scripts/build-frontend-image.sh # Package frontend/dist as a separate Nginx image
 scripts/build-container.sh    # Full alternative build inside containers
 ```
+
+Stable GitHub Releases publish both runtime images to GHCR. Pull the release tag (for example `v2.0.0`) and tag the images with the local names expected by `scripts/run.sh`:
+
+```bash
+podman pull ghcr.io/jfuchs1988/twx-analyzer-v2-api:v2.0.0
+podman tag ghcr.io/jfuchs1988/twx-analyzer-v2-api:v2.0.0 twxav2-app:latest
+podman pull ghcr.io/jfuchs1988/twx-analyzer-v2-frontend:v2.0.0
+podman tag ghcr.io/jfuchs1988/twx-analyzer-v2-frontend:v2.0.0 twxav2-frontend:latest
+```
+
+Private packages require GitHub Container Registry authentication with package-read access. The API and frontend remain separate images; the MariaDB container and runtime configuration/data are not included.
 
 To build the frontend manually:
 

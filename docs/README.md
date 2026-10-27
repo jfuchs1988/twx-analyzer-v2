@@ -9,6 +9,7 @@ Never document or reference developer-local test data in repository docs or code
 - [`NOTICE-AUDIT.md`](NOTICE-AUDIT.md): upstream code comparison and attribution locations.
 - [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md): resolved Maven/npm dependency license inventory and distribution notices.
 - [`build-versions.md`](build-versions.md): reviewed build/runtime versions and documented exceptions.
+- [`../SECURITY.md`](../SECURITY.md): vulnerability-reporting policy and private reporting instructions.
 
 This documentation describes the state visible in the source tree. ADR-001 through ADR-010 record the supplied architecture decisions; ADR-011 records the secret-encryption decision reconstructed from the current implementation; ADR-012 records the accepted frontend modularity/deployment choice. License and provenance information is in the root `LICENSE` and `NOTICE` files.
 

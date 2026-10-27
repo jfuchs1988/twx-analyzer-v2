@@ -1,0 +1,16 @@
+**
+!Containerfile
+!Containerfile.frontend
+!LICENSE
+!NOTICE
+!target/
+!target/quarkus-app/
+!target/quarkus-app/**
+!frontend/
+!frontend/dist/
+!frontend/dist/**
+!docs/
+!docs/THIRD-PARTY-NOTICES.md
+!deploy/
+!deploy/nginx/
+!deploy/nginx/default.conf.template
