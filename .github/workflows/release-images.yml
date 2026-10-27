@@ -62,7 +62,7 @@ jobs:
 
       - name: Prepare API image metadata
         id: meta-api
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}-api
           tags: |
@@ -85,7 +85,7 @@ jobs:
 
       - name: Prepare frontend image metadata
         id: meta-frontend
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}-frontend
           tags: |
