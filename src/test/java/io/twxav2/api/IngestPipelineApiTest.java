@@ -68,7 +68,10 @@ class IngestPipelineApiTest {
         // reanalysis: re-upload the same file from the archive
         HttpResponse<String> re = postJson("/api/snapshots/" + id + "/reanalyze", "");
         assertEquals(202, re.statusCode(), re.body());
-        assertTrue(warteAufStatus(file).contains("READY"));
+        assertEquals("READY", warteAufReady(file, id));
+        long reanalyzedId = snapshotId(file);
+        assertNotEquals(id, reanalyzedId);
+        id = reanalyzedId;
 
         assertEquals(200, get("/api/ingest/status").statusCode());
 
