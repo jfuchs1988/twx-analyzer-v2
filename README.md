@@ -20,7 +20,9 @@ src/main/resources/         Quarkus configuration and rule text
 src/test/java/              Backend tests
 frontend/                   React/TypeScript UI (Vite), built independently
 scripts/                    Local build/test and optional Podman scripts
-.github/workflows/          GitHub Actions build, backend test, and frontend checks
+.github/workflows/          GitHub Actions build, tests, and quality checks
+.github/dependabot.yml      Weekly Maven, npm, and GitHub Actions dependency updates
+SECURITY.md                 Private vulnerability reporting policy
 docs/arc42/                 Architecture documentation, one file per section
 docs/adrs/                  Architecture Decision Records
 docs/NOTICE-AUDIT.md        Upstream provenance and NOTICE audit
@@ -57,7 +59,7 @@ scripts/stop.sh --keep-db      # Stop frontend/API containers; leave MariaDB run
 scripts/dev.sh --skip-db       # Start API live reload; run Vite separately from frontend/
 ```
 
-GitHub Actions runs the backend test/JaCoCo gate and package build plus frontend lint, tests, and production build on pushes and pull requests to `develop` and `main`.
+GitHub Actions runs the backend test/JaCoCo gate and package build plus frontend lint, tests, and production build on pushes and pull requests to `develop` and `main`. Dependabot checks Maven, npm, and GitHub Actions dependencies weekly; GitHub vulnerability alerts and security updates are enabled for the repository. See [`SECURITY.md`](SECURITY.md) to report a vulnerability privately.
 
 Build containers only when explicitly requested:
 
