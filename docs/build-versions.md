@@ -42,19 +42,19 @@ The audit checked the checked-in direct dependencies and build tools against off
 | Tabler Icons | 3.50.0 is the latest npm release; this project still uses 3.49.0. | Review the changelog, update, and run the frontend build. |
 | TypeScript | 7.0.2 is the latest release, but `typescript-eslint` 8.72.1 declares peer support only for TypeScript `<6.1.0`. | Keep 6.0.3 until the lint toolchain supports TypeScript 7, then re-evaluate. |
 | Node.js | 24.22.1 is the latest LTS on the review date. Node 26.12.1 is still Current; its scheduled LTS transition is 2026-10-28. | Recheck the official status after the transition before changing the pinned toolchain. |
-| MariaDB | 12.3.3 is the newest LTS line; 11.8.9 is the newest patch on the current 11.8 line. The persisted `data/mariadb` directory was initialized on 11.8.9. | Keep 11.8.9 until backup/restore and upgrade testing to 12.3.3 succeeds (W-007). |
+| MariaDB | 12.3.3 is the newest LTS line; 11.8.9 is the newest patch on the current 11.8 line. An isolated test datadir initialized on 11.8.9 was copied and upgraded on 12.3.3; integrity checks passed. | Keep the existing datadir on 11.8.9 until its own verified backup and rollback/restore plan are ready; the isolated test did not modify or validate the live dataset. |
 
 No dependency version was changed as part of this audit.
 
 ## MariaDB major-version exception
 
-MariaDB 12.3.3 is also an LTS line and is newer. The current MariaDB 11.8.9 datadir is bind-mounted from the Git-ignored `data/mariadb/` path; local tests use H2 rather than MariaDB. The image remains on the 11.x LTS patch until an upgrade, backup, and restore are tested against 12.3.3. `MARIADB_IMAGE` can be overridden for an explicit test; do not do this against production data without a backup.
+MariaDB 12.3.3 is also an LTS line and is newer. Local tests use H2 rather than MariaDB. On 2026-10-27, an isolated test datadir initialized with MariaDB 11.8.9 was cleanly stopped, copied to a separate volume, and started with the official 12.3.3 image using `MARIADB_AUTO_UPGRADE=1`. The server reported 12.3.3; synthetic InnoDB rows and an index remained valid, `mariadb-check --all-databases --check` passed, and the preserved 11.8.9 volume remained readable. The existing repository-backed datadir was not changed. Before migrating it, take and verify a backup of that datadir and test the upgrade and rollback against a disposable copy of that backup. Keep the configured image on 11.8.9 until then. `MARIADB_IMAGE` can be overridden for an explicit isolated test; do not use it against the existing data directory without a verified backup.
 
 ## Local build
 
 The build, backend tests, frontend tests (`npm test`), and frontend lint run locally without Podman. The local preview and live-reload scripts use Podman MariaDB; separate API and frontend images are created only by the explicit image build scripts. The verified portable tools are in the ignored `temp/toolchain/` directory and are not part of the distribution.
 
-On 2026-10-27, the Vite production build, ESLint, all 9 Vitest tests, Quarkus package build, all 459 backend tests, and the JaCoCo gate passed. Podman is unavailable in this environment, so separate container image builds, Nginx runtime checks, and the MariaDB-backed split preview were not run. The MariaDB 12.3 migration test was also not run.
+On 2026-10-27, the Vite production build, ESLint, all 9 Vitest tests, Quarkus package build, all 459 backend tests, and the JaCoCo gate passed. Both separate Podman images built, and the frontend container served its production page with HTTP 200. The isolated MariaDB 11.8.9-to-12.3.3 test-volume upgrade and integrity checks passed. The full MariaDB-backed split application runtime and migration of the existing data directory were not tested.
 
 ## Sources
 
