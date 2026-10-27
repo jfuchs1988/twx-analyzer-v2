@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start twxav2: Podman network + MariaDB + app (host port 127.0.0.1:8080).
+# Start twxav2: Podman network + MariaDB + API + separate frontend (host :8080).
 set -euo pipefail
 
 SKIP_DB="${TWXAV2_SKIP_DB:-0}"
@@ -26,6 +26,20 @@ fi
 NET="twxav2"
 DB="twxav2-db"
 APP="twxav2-app"
+FRONTEND="twxav2-frontend"
+
+if ! command -v podman >/dev/null 2>&1; then
+  echo "ERROR: podman not found." >&2
+  exit 1
+fi
+for image in twxav2-app:latest twxav2-frontend:latest; do
+  if ! podman image exists "$image"; then
+    echo "ERROR: required image is missing: $image" >&2
+    echo "Build the API and frontend images with scripts/build-image.sh and scripts/build-frontend-image.sh." >&2
+    exit 1
+  fi
+done
+
 # Shared database setup; MariaDB files, credentials, and uploaded TWX archives
 # persist under the repository's Git-ignored data/ directory.
 # shellcheck source=scripts/podman-db.sh
@@ -66,18 +80,21 @@ EXTRA_ENV=()
 [ -n "${DB_SECRET:-}" ] && EXTRA_ENV+=(-e DB_SECRET="$DB_SECRET")
 # Temporary old key for startup re-encryption; remove it after successful rotation.
 [ -n "${DB_SECRET_PREVIOUS:-}" ] && EXTRA_ENV+=(-e DB_SECRET_PREVIOUS="$DB_SECRET_PREVIOUS")
-podman rm -f "$APP" >/dev/null 2>&1 || true
+podman rm -f "$FRONTEND" "$APP" >/dev/null 2>&1 || true
 podman run -d --name "$APP" --network "$NET" \
-  -p 127.0.0.1:8080:8080 \
   -e DB_HOST="$DB" -e DB_PORT=3306 -e DB_NAME=twxav2 \
   -e DB_USER=twxav2 -e DB_PASSWORD="$DB_PASSWORD" \
   -e UPLOAD_DIR=/app/data/uploads \
   -v "$TWXAV2_DATA_DIR_HOST/uploads:/app/data/uploads:z" \
   "${CA_ARGS[@]}" "${EXTRA_ENV[@]}" \
   twxav2-app:latest >/dev/null
+podman run -d --name "$FRONTEND" --network "$NET" \
+  -p 127.0.0.1:8080:8080 \
+  -e API_UPSTREAM="$APP:8080" \
+  twxav2-frontend:latest >/dev/null
 
 echo
 echo "twxav2 is running:"
 echo "  UI:       http://127.0.0.1:8080"
 echo "  API docs: http://127.0.0.1:8080/q/swagger-ui"
-echo "  Logs:     podman logs -f $APP   |   DB: podman logs -f $DB"
+echo "  Logs:     podman logs -f $FRONTEND (API: $APP; DB: $DB)"

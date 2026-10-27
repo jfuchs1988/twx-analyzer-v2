@@ -3,7 +3,7 @@
 | Decision/approach | Rationale or visible benefit |
 | --- | --- |
 | Quarkus backend with REST and JPA/Panache | API, persistence, and ingest/analysis in one service |
-| React SPA served by the backend | Single browser origin; same-origin API calls |
+| Feature-modular React SPA served by a separate Nginx frontend | Independent static UI and API deployments while preserving a same-origin browser URL via reverse proxy |
 | Separate TWX parsing and analysis phases | Domain-specific extraction and rule checks remain independently testable |
 | Registered rule components and a central `RuleEngine` | Rules are sorted by ID, configurable, and isolated on failure |
 | Bounded background queue | Upload/BAW import does not block the UI request; status can be queried |

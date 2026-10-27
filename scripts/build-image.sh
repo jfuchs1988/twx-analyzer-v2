@@ -17,5 +17,5 @@ if [ ! -f "$REPO/target/quarkus-app/quarkus-run.jar" ]; then
   echo "ERROR: target/quarkus-app is missing. Run scripts/build.sh locally first." >&2
   exit 1
 fi
-
 podman build -t twxav2-app:latest "$REPO"
+echo "Done: twxav2-app:latest"

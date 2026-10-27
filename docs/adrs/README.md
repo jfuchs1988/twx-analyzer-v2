@@ -13,5 +13,6 @@
 | [ADR-009](ADR-009-git-bash-msys-path-conventions.md) | Git Bash/MSYS path conventions | Accepted |
 | [ADR-010](ADR-010-read-only-baw-direct-import.md) | Read-only BAW direct import | Accepted |
 | [ADR-011](ADR-011-secrets-out-of-version-control.md) | Keep secrets out of version control | Reconstructed from current implementation |
+| [ADR-012](ADR-012-feature-modular-frontend-deployment.md) | Feature-modular frontend and independent deployment | Accepted |
 
 Create new ADRs from [`TEMPLATE.md`](TEMPLATE.md) and add them to this index. Clearly label reconstructed decisions.

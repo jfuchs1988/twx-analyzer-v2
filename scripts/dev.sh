@@ -6,11 +6,9 @@
 # Requirements:
 #   - Podman for the persistent MariaDB container and volume.
 #   - JDK 25 and Maven 3.10.x; optionally set BPM_CA_FILE for BPM TLS.
-#   - Port 8080 must be free; the application container is stopped if running.
+#   - Port 8080 must be free; the frontend/API containers are stopped if running.
 #
-# Frontend: run `npm run dev` locally from frontend/ (Vite proxies to :8080), or
-# build into META-INF/resources with scripts/build-frontend.sh. Quarkus dev mode
-# detects changes to META-INF/resources.
+# Frontend: run `npm run dev` locally from frontend/ (Vite proxies to :8080).
 #
 # Usage: scripts/dev.sh [--skip-db] [Maven arguments, e.g. -Dquarkus.log.level=DEBUG]
 set -euo pipefail
@@ -67,7 +65,11 @@ MVN_SETTINGS="$(mktemp)"
 printf '%s\n' '<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"></settings>' > "$MVN_SETTINGS"
 trap 'rm -f "$MVN_SETTINGS"' EXIT
 
-# Free port 8080 for the development server (leave the database running).
+# Free port 8080 for the API development server (leave the database running).
+if podman ps -f name=twxav2-frontend --format "{{.Names}}" | grep -qx twxav2-frontend; then
+  echo "Stopping the frontend container to free port 8080..."
+  podman stop twxav2-frontend >/dev/null
+fi
 if podman ps -f name=twxav2-app --format "{{.Names}}" | grep -qx twxav2-app; then
   echo "Stopping the app container to free port 8080 for development mode..."
   podman stop twxav2-app >/dev/null

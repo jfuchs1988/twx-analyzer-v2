@@ -13,17 +13,14 @@ else
 fi
 MVN_IMAGE="docker.io/library/maven:3.10.0-eclipse-temurin-25"
 NODE_IMAGE="docker.io/library/node:24.22.1-alpine"
-# ---- 1) Frontend (Vite output to src/main/resources/META-INF/resources) ----
-# Quarkus packages only resources present before Maven starts.
-mkdir -p "$REPO/src/main/resources/META-INF/resources"
+# ---- 1) Frontend (Vite output to frontend/dist) ----
 # SKIP_FRONTEND=1 skips this step when a previous UI build is already present
-# in META-INF/resources (faster backend iterations; default: full build).
-if [ "${SKIP_FRONTEND:-0}" = "1" ] && [ -f "$REPO/src/main/resources/META-INF/resources/index.html" ]; then
+# in frontend/dist (faster backend iterations; default: full build).
+if [ "${SKIP_FRONTEND:-0}" = "1" ] && [ -f "$REPO/frontend/dist/index.html" ]; then
   echo "== Skipping frontend build (SKIP_FRONTEND=1) =="
 else
   echo "== Frontend build =="
-  # Mount the full repository so outDir ../src/main/resources/META-INF/resources
-  # writes to the host rather than being lost inside the container.
+  # Mount the full repository so the frontend build output is retained on host.
   podman run --rm \
   -v "$REPO":/src:z -w /src/frontend \
   "$NODE_IMAGE" \
@@ -45,4 +42,8 @@ podman run --rm \
 echo "== Application image =="
 podman build -t twxav2-app:latest "$REPO"
 
-echo "Done: twxav2-app:latest"
+# ---- 4) Frontend image ----
+echo "== Frontend image =="
+podman build -f "$REPO/Containerfile.frontend" -t twxav2-frontend:latest "$REPO"
+
+echo "Done: twxav2-app:latest and twxav2-frontend:latest"

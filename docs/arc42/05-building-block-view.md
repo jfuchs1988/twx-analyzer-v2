@@ -16,7 +16,7 @@
 
 ## Level 2 — Frontend
 
-`frontend/src/App.tsx` provides navigation and page selection. `frontend/src/api.ts` centralizes typed fetch calls; `pages/` contains screens and `components/` contains reusable UI blocks. `i18n.tsx` manages language selection, and `design.tsx` provides the design system.
+`frontend/src/app/` provides the application shell and navigation. `frontend/src/features/` groups screens and feature-specific components by snapshots, toolkits, search, dashboard, comparison, settings, and import. `frontend/src/shared/` contains typed API calls, localization/design providers, and cross-feature reusable components. Vite builds this SPA into `frontend/dist`; a separate Nginx image serves it and proxies API/OpenAPI routes to Quarkus.
 
 ## Dependencies
 

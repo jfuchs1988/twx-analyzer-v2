@@ -20,7 +20,7 @@ Configuration is in `application.properties` and can be overridden through Micro
 
 ## Interfaces and localization
 
-The frontend centralizes API contracts in `frontend/src/api.ts`. UI text and backend error messages support English and German. Swagger UI is always included according to application configuration.
+The frontend centralizes typed API calls in `frontend/src/shared/api.ts`. UI text and backend error messages support English and German. Swagger UI is always included according to application configuration and is exposed through the frontend reverse proxy.
 
 ## Security
 

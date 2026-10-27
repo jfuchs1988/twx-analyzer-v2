@@ -7,7 +7,8 @@
 - MariaDB is the configured runtime default; the test profile uses H2.
 - Local build scripts require Bash, JDK 25, Maven 3.10.0, Node 24.22.1, and npm 12.2.1. Podman is only required for optional image creation and container runtime operations.
 - The runtime image uses Eclipse Temurin 25 JRE; the MariaDB container is pinned to 11.8.9 within the existing database major line.
-- Vite writes static assets to `src/main/resources/META-INF/resources`.
+- Vite writes static assets to the independent `frontend/dist` build directory; the frontend container serves these assets separately from Quarkus.
+- The deployed frontend uses same-origin `/api` and `/q` paths through its reverse proxy; cross-origin CORS is not required for the standard deployment.
 - BAW integration uses the Operations REST API, TLS, and an optional PEM CA bundle.
 
 ## Build and Licensing Metadata

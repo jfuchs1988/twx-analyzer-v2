@@ -24,7 +24,7 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 echo "== Local frontend build =="
-if [ "${SKIP_FRONTEND:-0}" = "1" ] && [ -f "$REPO/src/main/resources/META-INF/resources/index.html" ]; then
+if [ "${SKIP_FRONTEND:-0}" = "1" ] && [ -f "$REPO/frontend/dist/index.html" ]; then
   echo "Skipping frontend build (SKIP_FRONTEND=1)"
 else
   (
@@ -41,4 +41,4 @@ fi
 echo "== Local backend build =="
 "$MVN" -B -ntp -DskipTests package
 
-echo "Done: target/quarkus-app (no container image built)."
+echo "Done: frontend/dist and target/quarkus-app (no container images built)."
