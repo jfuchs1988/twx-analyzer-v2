@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub Release tag to attach downloadable image archives to
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -12,9 +17,9 @@ jobs:
   publish:
     name: Build and publish container images
     if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Check out source
@@ -69,13 +74,14 @@ jobs:
             type=ref,event=tag
             type=ref,event=branch
             type=sha
+            type=raw,value=${{ inputs.release_tag }},enable=${{ inputs.release_tag != '' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=raw,value=latest
 
       - name: Build and publish API image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Containerfile
@@ -92,16 +98,41 @@ jobs:
             type=ref,event=tag
             type=ref,event=branch
             type=sha
+            type=raw,value=${{ inputs.release_tag }},enable=${{ inputs.release_tag != '' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=raw,value=latest
 
       - name: Build and publish frontend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Containerfile.frontend
           push: true
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}
+
+      - name: Attach image archives to GitHub Release
+        if: github.event_name == 'release' || inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          api_image="ghcr.io/${GITHUB_REPOSITORY}-api:${RELEASE_TAG}"
+          frontend_image="ghcr.io/${GITHUB_REPOSITORY}-frontend:${RELEASE_TAG}"
+          api_archive="twx-analyzer-v2-api-${RELEASE_TAG}.tar.gz"
+          frontend_archive="twx-analyzer-v2-frontend-${RELEASE_TAG}.tar.gz"
+
+          docker pull "$api_image"
+          docker pull "$frontend_image"
+          docker save "$api_image" | gzip -1 > "$api_archive"
+          docker save "$frontend_image" | gzip -1 > "$frontend_archive"
+          sha256sum "$api_archive" "$frontend_archive" > SHA256SUMS.txt
+
+          gh release upload "$RELEASE_TAG" \
+            "$api_archive" \
+            "$frontend_archive" \
+            SHA256SUMS.txt \
+            --clobber
