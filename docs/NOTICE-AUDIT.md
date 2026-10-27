@@ -22,6 +22,10 @@ The root `LICENSE` is the Apache-2.0 license text with this project's copyright 
 - `Containerfile` copies both files into the application image (`/app/LICENSE`, `/app/NOTICE`) so the documented container distribution carries the license and attribution.
 - Derived Java files contain brief provenance/modification notices; detailed attribution and license terms are in `NOTICE` and `LICENSE`.
 
-## Remaining review
+## Dependency license inventory (reviewed 2026-10-27)
 
-The third-party list in `NOTICE` is explicitly not exhaustive. Before publishing or redistributing, complete a license inventory of all direct and transitive Maven/npm dependencies, including any required license texts or other obligations for the components actually distributed. This source comparison is not a legal review.
+The resolved project dependency inventory is [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). It was generated from the resolved Maven POM license metadata for packaged `compile`/`runtime` scopes (172 artifacts), all declared Maven project dependency scopes (267 artifacts, including tests), and every package/license field in `frontend/package-lock.json` (292 packages, including development tooling). No Maven report entries or npm lockfile package entries were missing license declarations. Maven build-plugin dependencies are excluded because they are build tooling, not project/runtime dependencies distributed by this application.
+
+The reviewed runtime exceptions to the predominant Apache-2.0/MIT terms include MariaDB Connector/J 3.5.10 (LGPL-2.1-or-later) and Mozilla Rhino 1.9.1 (MPL-2.0); Eclipse components declare EPL and/or EDL options, in some cases alongside GPL with the Classpath Exception. The inventory preserves coordinates, versions, package source/project links, and declared terms. The container copies the inventory alongside `LICENSE` and `NOTICE`. This is a metadata and attribution review, not legal advice; before a specific redistribution, check the exact applicable license text, notices and any source/relinking obligations for the versions actually shipped.
+
+To refresh after changing dependencies, run `org.codehaus.mojo:license-maven-plugin:2.7.1:add-third-party` with `-Dlicense.includedScopes=compile,runtime -Dlicense.outputDirectory=target/license-audit`, then run it again with `-Dlicense.outputDirectory=target/license-audit/all`; finally run `python scripts/third-party-notices.py`. Review and commit the resulting inventory diff. The npm audit reads the lockfile directly.

@@ -25,6 +25,13 @@ class SecretsCryptoTest {
     }
 
     @Test
+    void productionRequiresEncryptionSecret() {
+        assertThrows(IllegalStateException.class, () -> crypto("").validateConfiguration("prod"));
+        assertDoesNotThrow(() -> crypto("").validateConfiguration("test"));
+        assertDoesNotThrow(() -> crypto("configured").validateConfiguration("prod"));
+    }
+
+    @Test
     void withoutSecretPlainTextPassThrough() {
         SecretsCrypto c = crypto("");
         assertEquals("pw", c.encrypt("pw"));
@@ -59,6 +66,38 @@ class SecretsCryptoTest {
     @Test
     void plainTextAtDecryptPassedThrough() {
         assertEquals("alt-plain", crypto("master-secret").decrypt("alt-plain"));
+    }
+
+    @Test
+    void migratePlaintextToEncryptedValue() {
+        SecretsCrypto c = crypto("new-secret");
+        String migrated = c.migrate("legacy-plaintext");
+        assertTrue(SecretsCrypto.isEncrypted(migrated));
+        assertEquals("legacy-plaintext", c.decrypt(migrated));
+        assertEquals(migrated, c.migrate(migrated));
+    }
+
+    @Test
+    void rotateEncryptedValueFromPreviousSecret() {
+        String oldValue = crypto("old-secret").encrypt("stored-password");
+        SecretsCrypto rotating = crypto("new-secret");
+        rotating.previousSecret = java.util.Optional.of("old-secret");
+
+        String newValue = rotating.migrate(oldValue);
+
+        assertNotEquals(oldValue, newValue);
+        assertEquals("stored-password", rotating.decrypt(newValue));
+        assertEquals(newValue, rotating.migrate(newValue), "retry after a committed rotation is idempotent");
+        assertThrows(IllegalStateException.class, () -> crypto("old-secret").decrypt(newValue));
+    }
+
+    @Test
+    void incorrectPreviousSecretFailsRotationWithoutReturningPlaintext() {
+        String oldValue = crypto("old-secret").encrypt("stored-password");
+        SecretsCrypto rotating = crypto("new-secret");
+        rotating.previousSecret = java.util.Optional.of("incorrect-secret");
+
+        assertThrows(IllegalStateException.class, () -> rotating.migrate(oldValue));
     }
 
     @Test

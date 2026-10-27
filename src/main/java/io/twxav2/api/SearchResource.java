@@ -1,5 +1,6 @@
 package io.twxav2.api;
 
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.panache.common.Sort;
 import io.twxav2.api.dto.SearchHit;
 import io.twxav2.api.dto.SearchMatch;
@@ -7,6 +8,8 @@ import io.twxav2.api.dto.SearchResponse;
 import io.twxav2.analysis.script.ScriptScanner;
 import io.twxav2.ingest.TwxParseResult.ParsedObject;
 import io.twxav2.model.TwxObject;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
@@ -46,6 +49,10 @@ public class SearchResource {
     private static final long MAX_BUDGET_MS = 15_000;
     private static final int DEFAULT_LIMIT = 50;
     private static final int MAX_LIMIT = 200;
+    private static final int CANDIDATE_PAGE_SIZE = 32;
+
+    @Inject
+    EntityManager em;
 
     @GET
     @Transactional
@@ -82,55 +89,87 @@ public class SearchResource {
                 MAX_BUDGET_MS);
         long deadline = System.nanoTime() + budget * 1_000_000L;
 
-        List<TwxObject> candidates = candidates(snapshotId, prefixes, type);
+        PanacheQuery<TwxObject> candidates = candidates(snapshotId, prefixes, type);
         boolean needsContent = scopes.contains("scripts") || scopes.contains("raw");
 
         List<SearchHit> hits = new ArrayList<>();
         boolean truncated = false;
-        for (TwxObject o : candidates) {
-            if (hits.size() >= maxObjects || System.nanoTime() > deadline) {
+        int pageIndex = 0;
+        search:
+        while (true) {
+            if (System.nanoTime() > deadline) {
                 truncated = true;
                 break;
             }
-            List<SearchMatch> matches = new ArrayList<>();
-            try {
-                if (scopes.contains("name")) {
-                    collect(matches, "name", null, o.name, pattern, asRegex, caseSensitive, needle,
-                            deadline, MATCHES_PER_OBJECT);
+            List<TwxObject> page = candidates.page(pageIndex, CANDIDATE_PAGE_SIZE).list();
+            if (page.isEmpty()) {
+                break;
+            }
+            if (System.nanoTime() > deadline) {
+                truncated = true;
+                break;
+            }
+            for (int i = 0; i < page.size(); i++) {
+                if (System.nanoTime() > deadline) {
+                    truncated = true;
+                    break search;
                 }
-                if (scopes.contains("docs")) {
-                    collect(matches, "docs", null, o.description, pattern, asRegex, caseSensitive,
-                            needle, deadline, MATCHES_PER_OBJECT);
-                }
-                if (needsContent && o.content != null) {
-                    if (scopes.contains("scripts")) {
-                        for (ScriptScanner.Fragment f : ScriptScanner.fragments(toParsed(o))) {
-                            collect(matches, "scripts", f.description(), f.js(), pattern,
-                                    asRegex, caseSensitive, needle, deadline, MATCHES_PER_OBJECT);
-                            if (matches.size() >= MATCHES_PER_OBJECT) {
-                                break;
-                            }
-                        }
+                TwxObject o = page.get(i);
+                List<SearchMatch> matches = new ArrayList<>();
+                boolean budgetHit = false;
+                try {
+                    if (scopes.contains("name")) {
+                        collect(matches, "name", null, o.name, pattern, asRegex, caseSensitive, needle,
+                                deadline, MATCHES_PER_OBJECT);
                     }
-                    if (matches.size() < MATCHES_PER_OBJECT && scopes.contains("raw")) {
-                        collect(matches, "raw", null, o.content, pattern, asRegex, caseSensitive,
+                    if (scopes.contains("docs")) {
+                        collect(matches, "docs", null, o.description, pattern, asRegex, caseSensitive,
                                 needle, deadline, MATCHES_PER_OBJECT);
                     }
+                    if (needsContent && o.content != null) {
+                        if (scopes.contains("scripts")) {
+                            for (ScriptScanner.Fragment f : ScriptScanner.fragments(toParsed(o))) {
+                                collect(matches, "scripts", f.description(), f.js(), pattern,
+                                        asRegex, caseSensitive, needle, deadline, MATCHES_PER_OBJECT);
+                                if (matches.size() >= MATCHES_PER_OBJECT) {
+                                    break;
+                                }
+                            }
+                        }
+                        if (matches.size() < MATCHES_PER_OBJECT && scopes.contains("raw")) {
+                            collect(matches, "raw", null, o.content, pattern, asRegex, caseSensitive,
+                                    needle, deadline, MATCHES_PER_OBJECT);
+                        }
+                    }
+                } catch (BudgetHit e) {
+                    truncated = true;
+                    budgetHit = true;
                 }
-            } catch (BudgetHit e) {
-                truncated = true; // budget reached: serve the hits found so far
+                if (!matches.isEmpty()) {
+                    hits.add(new SearchHit(o.id, o.snapshot.id, snapshotLabel(o), o.typeName,
+                            o.name, o.snapshot.isToolkit, matches));
+                }
+                if (budgetHit) {
+                    break search;
+                }
+                if (hits.size() >= maxObjects) {
+                    truncated = hasMoreCandidates(candidates, pageIndex, page.size(), i, deadline);
+                    break search;
+                }
             }
-            if (!matches.isEmpty()) {
-                hits.add(new SearchHit(o.id, o.snapshot.id, snapshotLabel(o), o.typeName,
-                        o.name, o.snapshot.isToolkit, matches));
+            boolean lastPage = page.size() < CANDIDATE_PAGE_SIZE;
+            em.clear(); // release the page's managed entities and any lazily loaded content
+            if (lastPage) {
+                break;
             }
+            pageIndex++;
         }
         return Response.ok(new SearchResponse(hits, truncated,
                 System.currentTimeMillis() - t0, null)).build();
     }
 
     /** Candidates per snapshot/prefix filter (content is read LAZY object by object). */
-    private static List<TwxObject> candidates(Long snapshotId, String prefixes, String type) {
+    private static PanacheQuery<TwxObject> candidates(Long snapshotId, String prefixes, String type) {
         StringBuilder query = new StringBuilder();
         List<Object> params = new ArrayList<>();
         if (snapshotId != null) {
@@ -152,7 +191,22 @@ public class SearchResource {
                 params.add(pf);
             }
         }
-        return TwxObject.list(query.toString(), Sort.by("id").ascending(), params.toArray());
+        return TwxObject.find(query.toString(), Sort.by("id").ascending(), params.toArray());
+    }
+
+    /** Determine whether the object cap omitted candidates without loading another full page. */
+    private static boolean hasMoreCandidates(PanacheQuery<TwxObject> query, int pageIndex,
+                                             int pageSize, int rowIndex, long deadline) {
+        if (rowIndex + 1 < pageSize) {
+            return true;
+        }
+        if (pageSize < CANDIDATE_PAGE_SIZE) {
+            return false;
+        }
+        if (System.nanoTime() > deadline) {
+            return true;
+        }
+        return !query.page(pageIndex + 1, CANDIDATE_PAGE_SIZE).list().isEmpty();
     }
 
     /** Collect one search scope (plain text or regex) into matches, at most cap hits. */
@@ -174,6 +228,9 @@ public class SearchResource {
         String nee = caseSensitive ? needle : needle.toLowerCase(Locale.ROOT);
         int from = 0;
         while (matches.size() < cap) {
+            if (System.nanoTime() > deadline) {
+                throw new BudgetHit();
+            }
             int at = hay.indexOf(nee, from);
             if (at < 0) {
                 return;

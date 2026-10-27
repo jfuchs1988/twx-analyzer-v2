@@ -15,9 +15,9 @@
     <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
     <quarkus.platform.version>3.40.1.1</quarkus.platform.version>
     <compiler-plugin.version>3.16.0</compiler-plugin.version>
-    <!-- Minimum line-coverage gate for JaCoCo-instrumented code. Quarkus test
-         classloader limitations are documented with the JaCoCo plugin below;
-         this value is not a measure of total runtime/API coverage. -->
+    <!-- Minimum line-coverage gate for JaCoCo-instrumented code only. The
+         coverage strategy in docs/arc42/10-quality-requirements.md treats
+         Quarkus HTTP tests as behavioral coverage, not JaCoCo coverage. -->
     <jacoco.min.line.ratio>0.64</jacoco.min.line.ratio>
   </properties>
 

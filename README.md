@@ -45,6 +45,7 @@ The default build runs locally and does not require Podman:
 scripts/build.sh              # Local frontend and Quarkus package build; no image
 scripts/test.sh               # Local backend tests
 scripts/test.sh -Dtest=TwxParserTest
+cd frontend && npm test       # Frontend component tests (Vitest + Testing Library)
 scripts/lint.sh               # Local ESLint
 scripts/lint.sh --fix
 scripts/build-frontend.sh     # Local UI build into Quarkus resources
@@ -69,6 +70,7 @@ cd frontend
 npm ci
 npm run build
 npm run lint
+npm test
 ```
 
 Vite writes to `src/main/resources/META-INF/resources`, so the frontend build needs write access to the backend source tree.
@@ -98,7 +100,8 @@ All defaults and environment variables are listed in [`src/main/resources/applic
 | Variable | Purpose | Default / notes |
 | --- | --- | --- |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Database connection | Local default `127.0.0.1:3306`; Podman scripts set container values |
-| `DB_SECRET` | Encryption for stored BAW passwords | First-time Podman setup generates it in Git-ignored `data/db.env`; manage it securely in production. Without it, the implementation stores plaintext |
+| `DB_SECRET` | Encryption for stored BAW passwords | Required in the production profile. First-time Podman setup generates it in Git-ignored `data/db.env`; protect and back it up with the database. |
+| `DB_SECRET_PREVIOUS` | One-time key rotation | Optional; set to the old key only for the rotation startup, then remove it. |
 | `UPLOAD_DIR` | Imported TWX file storage | `${user.dir}/data/uploads`; Podman scripts set it to `data/uploads` |
 | `INGEST_CONCURRENCY` | Concurrent ingest tasks | `2` |
 | `API_TOKEN` | Protects `/api/export/*` | Empty disables it; it does not protect other endpoints |
@@ -110,6 +113,12 @@ All defaults and environment variables are listed in [`src/main/resources/applic
 
 All persistent local state is stored in the repository's Git-ignored `data/` directory. First-time setup creates `data/db.env`, `data/uploads/`, and `data/mariadb/`. The scripts resolve `TWXAV2_DATA_DIR` to this directory and reject other locations. Existing Podman volume data must be migrated with `scripts/migrate-db-volume.sh` while MariaDB is stopped; verify the bind-mounted DB before removing the old volume. Never commit credentials, tokens, or TWX files. In particular, `API_TOKEN` does not provide global application authentication.
 
+### Database-secret rotation and recovery
+
+Back up the database and securely retain the current `DB_SECRET` together before changing keys. To rotate, deploy the new value as `DB_SECRET` and the old value as `DB_SECRET_PREVIOUS` for one startup. Startup transactionally re-encrypts the stored BAW password; a bad old key aborts startup and does not replace the stored value. Verify the BPM connection, then remove `DB_SECRET_PREVIOUS` from the runtime environment. Existing plaintext BAW passwords are encrypted automatically at startup once `DB_SECRET` is configured. Production startup fails if `DB_SECRET` is missing.
+
+For recovery, restore a mutually consistent database backup and its matching `DB_SECRET`. A lost key cannot be reconstructed from ciphertext; if no matching backup/key pair exists, the BAW password must be entered again through settings. Do not rotate by changing `DB_SECRET` alone while encrypted values remain in the database.
+
 ## License and third-party notices
 
-The project includes [`LICENSE`](LICENSE) (Apache License 2.0) and [`NOTICE`](NOTICE), which contains copyright/provenance information and a short list of relevant third-party components. Include both files when redistributing the project, and verify the complete license terms for all Maven/npm dependencies from their package metadata. `NOTICE` specifically identifies the derived analysis core and Mozilla Rhino.
+The project includes [`LICENSE`](LICENSE), [`NOTICE`](NOTICE), and the resolved [`third-party dependency inventory`](docs/THIRD-PARTY-NOTICES.md). Include these notices when redistributing the source or container image. The inventory covers all declared Maven dependency scopes (including tests) and all npm lockfile packages (including dev tooling), records package versions and license metadata, and identifies the key runtime LGPL/MPL components. It is metadata-based and is not a legal opinion; review applicable upstream license terms before redistribution. Regenerate it after dependency changes with the Maven license plugin and `python scripts/third-party-notices.py`.

@@ -121,6 +121,19 @@ public class ApiFixtures {
         return f;
     }
 
+    /** Synthetic formula-leading values used to verify CSV spreadsheet safety. */
+    @Transactional
+    public void formulaLeadingFinding(Long findingId) {
+        Finding f = Finding.findById(findingId);
+        f.ruleId = "=1+1";
+        f.category = "+1+1";
+        f.objectId = "-1+1";
+        f.objectName = "@SUM(A1:A2)";
+        f.location = "=1+1";
+        f.message = "+1+1";
+        f.statusComment = "-1+1";
+    }
+
     /** TwxObject with XML content; twxId e.g. "1.abc" -> DB id "<snapshot>:1.abc". */
     @Transactional
     public TwxObject object(Snapshot s, String twxId, String prefix, String name, String content) {
@@ -143,6 +156,22 @@ public class ApiFixtures {
         o.sha256 = content == null ? null : sha256Hex(content);
         o.persist();
         return o;
+    }
+
+    /** Batch fixture crossing multiple bounded search pages, without developer data. */
+    @Transactional
+    public void searchObjects(Snapshot s, int count, int matchingIndex) {
+        for (int i = 0; i < count; i++) {
+            TwxObject o = new TwxObject();
+            o.id = s.id + ":1.search" + String.format("%04d", i);
+            o.snapshot = s;
+            o.prefix = "1";
+            o.typeName = "process";
+            o.name = i == matchingIndex ? "Late target-term match" : "Non-matching object " + i;
+            o.hasContent = false;
+            o.contentBytes = 0;
+            o.persist();
+        }
     }
 
     /** Persisted scriptLines metric of a snapshot (normally filled by the ingest). */

@@ -19,7 +19,7 @@ CI/automation ── export API + optional token ┘        │
 | BAW Operations API | Read container/version information, authenticate to obtain a CSRF token, and download exports |
 | MariaDB | Persist snapshots, objects, findings, rules, toolkit data, and BPM settings |
 | Filesystem/volume | Temporary imports and persisted upload files |
-| CI/automation | JSON/CSV/HTML from `/api/export/*`; optional `X-API-Token` header or query token |
+| CI/automation | JSON/CSV/HTML from `/api/export/*`; CSV quotes delimiters and prefixes formula-leading text cells with an apostrophe; optional `X-API-Token` header or query token |
 
 ## Scope and Security Note
 

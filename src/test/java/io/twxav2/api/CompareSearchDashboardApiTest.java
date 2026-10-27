@@ -102,6 +102,19 @@ class CompareSearchDashboardApiTest {
     }
 
     @Test
+    void suchePaginiertBisZumSpaetenTreffer() throws Exception {
+        Snapshot s = fx.snapshot("FIXQ", "Paged search", Snapshot.Status.READY);
+        fx.searchObjects(s, 4096, 4095);
+
+        HttpResponse<String> r = get("/api/search?q=target-term&snapshotId=" + s.id
+                + "&scope=name&limit=1&budgetMs=15000");
+
+        assertEquals(200, r.statusCode());
+        assertTrue(r.body().contains("Late target-term match"), r.body());
+        assertTrue(r.body().contains("\"truncated\":false"), r.body());
+    }
+
+    @Test
     void sucheFehler() throws Exception {
         suchgrundlage();
         HttpResponse<String> kurz = get("/api/search?q=x");

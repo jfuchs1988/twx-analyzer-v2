@@ -213,6 +213,15 @@ public class ExportResource {
             return "";
         }
         String t = s.replace("\r", " ").replace("\n", " ");
+        int first = 0;
+        while (first < t.length()
+                && (Character.isWhitespace(t.charAt(first)) || Character.isISOControl(t.charAt(first)))) {
+            first++;
+        }
+        // CSV quoting protects delimiters, not spreadsheet formula evaluation.
+        if (first < t.length() && "=+-@".indexOf(t.charAt(first)) >= 0) {
+            t = "'" + t;
+        }
         if (t.contains(";") || t.contains("\"")) {
             return '"' + t.replace("\"", "\"\"") + '"';
         }
