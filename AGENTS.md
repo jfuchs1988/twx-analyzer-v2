@@ -7,6 +7,7 @@
 - `src/test/java/`: JUnit/Quarkus tests.
 - `frontend/`: React, TypeScript, and Vite UI.
 - `scripts/`: Local build/test and optional Podman scripts.
+- `.github/workflows/`: GitHub Actions validation workflows.
 - `docs/`: arc42 architecture documentation and Architecture Decision Records (ADRs).
 
 ## Changes
@@ -21,7 +22,7 @@
 
 ## Build and tests
 
-The default entry points `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, `scripts/dev.sh`, and `scripts/preview-local.sh` run locally. `scripts/dev.sh` and `scripts/preview-local.sh` use the persistent Podman MariaDB; use `--skip-db` or `TWXAV2_SKIP_DB=1` to require the existing service without restarting it. `scripts/start-db.sh` starts only MariaDB, and `scripts/stop.sh --keep-db` stops the frontend and API while leaving MariaDB running. Podman is also needed for `scripts/run.sh`, `scripts/build-image.sh`, `scripts/build-frontend-image.sh`, and `scripts/build-container.sh`. Frontend dependencies are defined by `frontend/package.json` and `frontend/package-lock.json`.
+The default entry points `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, `scripts/dev.sh`, and `scripts/preview-local.sh` run locally. `scripts/dev.sh` and `scripts/preview-local.sh` use the persistent Podman MariaDB; use `--skip-db` or `TWXAV2_SKIP_DB=1` to require the existing service without restarting it. `scripts/start-db.sh` starts only MariaDB; `scripts/upgrade-mariadb.sh` backup/restores existing 11.8.x data into the configured 12.3.3 datadir before switching; `scripts/stop.sh --keep-db` stops only the frontend and API containers. Podman is also needed for `scripts/run.sh`, `scripts/build-image.sh`, `scripts/build-frontend-image.sh`, and `scripts/build-container.sh`. Frontend dependencies are defined by `frontend/package.json` and `frontend/package-lock.json`.
 
 The root Maven project is `pom.xml`. Local builds use JDK 25 and Maven 3.10.0; the frontend uses Node.js 24.22.1 and npm 12.2.1. The API and frontend runtime images are defined by `Containerfile` and `Containerfile.frontend`. Review manifests and affected scripts together when changing build or runtime behavior.
 
@@ -29,10 +30,10 @@ License notices are in `LICENSE` and `NOTICE`. Preserve these files when redistr
 
 ## Git workflow
 
-- Use one dedicated Git worktree and topic branch for each new task; do not develop directly on `develop` or `master`.
+- Use one dedicated Git worktree and topic branch for each new task; do not develop directly on `develop` or `main`.
 - Merge reviewed, tested topic branches into `develop`.
-- After confirming the merge in `develop`, automatically delete the merged topic branch locally and remotely. Never delete `develop` or `master` through this cleanup.
-- Merge `develop` into `master` only when the user confirms the release state is ready.
+- After confirming the merge in `develop`, automatically delete the merged topic branch locally and remotely. Never delete `develop` or `main` through this cleanup.
+- Merge `develop` into `main` only when the user confirms the release state is ready.
 - Do not force-push or rewrite shared branch history. Preserve local uncommitted changes when creating worktrees or reconciling branches.
 
 ## Documentation (living)

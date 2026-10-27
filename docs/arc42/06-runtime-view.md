@@ -3,17 +3,17 @@
 ## Import a TWX file
 
 1. The browser sends a file to the upload endpoint; the UI displays upload progress.
-2. The server enqueues a job in `IngestQueue`. Duplicate pending jobs can be rejected using a deduplication key.
-3. Workers store the file in the configured upload directory and parse its manifest, project objects, and embedded toolkits.
+2. The server reserves bounded queue and staged-byte capacity before copying the file into its application staging directory. Duplicate pending jobs receive 409; exhausted capacity receives 429.
+3. Workers move the file into the configured upload directory and parse it under configured archive, entry, object, expansion, retained-content, and toolkit budgets.
 4. Automatic/manual exclusions and rule settings are applied; objects and variable usage are persisted.
 5. `RuleEngine` runs enabled rules. A rule failure becomes an INFO finding instead of aborting the entire rule run.
-6. The snapshot and findings are exposed to the UI, search, comparison, and export. Queue status remains available for a limited time.
+6. The snapshot and findings are exposed to the UI, search, comparison, and export. Queue status remains available for a limited time. Abandoned staging files are removed on startup; staged files are deleted after completion or when queued jobs are rejected during shutdown.
 
 ## Direct BAW import
 
 1. Test the configured connection or read the available containers and versions.
-2. `BpmClient` authenticates with the Operations API, renews the session once after HTTP 401/403, and downloads the TWX export.
-3. The download is size-limited, then follows the same ingest/analysis path as a file upload.
+2. Before sending stored credentials, the server validates that the configured target is an allowed HTTPS origin. `BpmClient` authenticates with the Operations API, renews the session once after HTTP 401/403, and downloads the TWX export.
+3. The download is size-limited and reserves the configured maximum export budget, then follows the same ingest/analysis path as a file upload.
 
 ## Analysis and display
 

@@ -40,6 +40,95 @@ public final class TwxParser {
     /** Cap for package.xml in toolkit ZIPs (metadata, real < 1 MB). */
     public static final int MAX_PACKAGE_XML_BYTES = 8 * 1024 * 1024;
 
+    public record Limits(long maxArchiveBytes, int maxEntryCount, int maxObjectCount,
+                         long maxExpandedBytes, long maxRetainedContentBytes,
+                         int maxToolkitCount, long maxToolkitBytes, long maxTotalToolkitBytes) {
+        public Limits {
+            if (maxArchiveBytes < 1 || maxEntryCount < 1 || maxObjectCount < 1
+                    || maxExpandedBytes < 1 || maxRetainedContentBytes < 1
+                    || maxToolkitCount < 0 || maxToolkitBytes < 1 || maxTotalToolkitBytes < 0) {
+                throw new IllegalArgumentException("TWX limits must be positive (toolkit limits may be zero)");
+            }
+        }
+
+        public static Limits defaults() {
+            return new Limits(2L * 1024 * 1024 * 1024, 100_000, 50_000,
+                    4L * 1024 * 1024 * 1024, 256L * 1024 * 1024,
+                    128, MAX_TOOLKIT_BYTES, 1024L * 1024 * 1024);
+        }
+    }
+
+    private static final class ArchiveLimitException extends IllegalArgumentException {
+        ArchiveLimitException(String message) { super(message); }
+    }
+
+    private static final class ParseBudget {
+        private final Limits limits;
+        private long expandedBytes;
+        private long retainedBytes;
+        private long toolkitBytes;
+        private int entryCount;
+        private int toolkitCount;
+        private final java.util.Set<String> objectIds = new java.util.HashSet<>();
+
+        ParseBudget(Limits limits) { this.limits = limits; }
+
+        void preflight(ZipFile zip) {
+            if (zip.size() > limits.maxEntryCount()) {
+                throw new ArchiveLimitException("TWX enthaelt mehr als " + limits.maxEntryCount() + " ZIP-Eintraege");
+            }
+            entryCount = zip.size();
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                long size = entry.getSize();
+                if (size < 0) {
+                    throw new ArchiveLimitException("TWX-Eintragsgroesse unbekannt: " + entry.getName());
+                }
+                consumeExpanded(size);
+            }
+        }
+
+        void consumeExpanded(long bytes) {
+            if (bytes < 0 || expandedBytes > limits.maxExpandedBytes() - bytes) {
+                throw new ArchiveLimitException("TWX-Entpackungsbudget ueberschritten");
+            }
+            expandedBytes += bytes;
+        }
+
+        void retain(String value) {
+            long bytes = (long) value.length() * Character.BYTES;
+            if (retainedBytes > limits.maxRetainedContentBytes() - bytes) {
+                throw new ArchiveLimitException("TWX-Inhaltsbudget ueberschritten");
+            }
+            retainedBytes += bytes;
+        }
+
+        void addEntry() {
+            if (++entryCount > limits.maxEntryCount()) {
+                throw new ArchiveLimitException("TWX enthaelt mehr als " + limits.maxEntryCount() + " ZIP-Eintraege");
+            }
+        }
+
+        void addObject(String scopeAndId) {
+            if (objectIds.add(scopeAndId) && objectIds.size() > limits.maxObjectCount()) {
+                throw new ArchiveLimitException("TWX enthaelt mehr als " + limits.maxObjectCount() + " Objekte");
+            }
+        }
+
+        void addToolkit(long bytes) {
+            if (++toolkitCount > limits.maxToolkitCount()) {
+                throw new ArchiveLimitException("TWX enthaelt mehr als " + limits.maxToolkitCount()
+                        + " eingebettete Toolkits");
+            }
+            long perToolkitLimit = Math.min(limits.maxToolkitBytes(), MAX_TOOLKIT_BYTES);
+            if (bytes > perToolkitLimit || toolkitBytes > limits.maxTotalToolkitBytes() - bytes) {
+                throw new ArchiveLimitException("TWX-Toolkitdaten ueberschreiten das konfigurierte Budget");
+            }
+            toolkitBytes += bytes;
+        }
+    }
+
     private static final XMLInputFactory XIF = XMLInputFactory.newFactory();
     static {
         XIF.setProperty(XMLInputFactory.SUPPORT_DTD, false);
@@ -49,16 +138,26 @@ public final class TwxParser {
     private TwxParser() { }
 
     public static TwxParseResult parse(Path twxFile) throws Exception {
+        return parse(twxFile, Limits.defaults());
+    }
+
+    public static TwxParseResult parse(Path twxFile, Limits limits) throws Exception {
+        long archiveBytes = Files.size(twxFile);
+        if (archiveBytes > limits.maxArchiveBytes()) {
+            throw new ArchiveLimitException("TWX-Archiv ueber " + limits.maxArchiveBytes() + " Bytes");
+        }
         List<TwxParseResult.ParsedObject> objects = new ArrayList<>();
         List<TwxParseResult.ParsedToolkit> toolkits = new ArrayList<>();
         List<TwxParseResult.ParseError> errors = new ArrayList<>();
         Map<String, TwxParseResult.ParsedObject> byId = new HashMap<>();
         Map<String, StringBuilder> pendingPayload = new HashMap<>();
+        ParseBudget budget = new ParseBudget(limits);
 
         TwxParseResult.Manifest manifest;
         try (ZipFile zip = new ZipFile(twxFile.toFile())) {
+            budget.preflight(zip);
             manifest = readManifest(zip);
-            Map<String, String> pkgTypes = readObjectTypes(zip);
+            Map<String, String> pkgTypes = readObjectTypes(zip, budget, "main");
             Map<String, List<String>> objectTags = readObjectTags(zip);
 
             var entries = zip.entries();
@@ -70,8 +169,12 @@ public final class TwxParser {
                 }
                 if (n.startsWith("objects/") && n.endsWith(".xml")) {
                     String id = shortObjectId(n.substring("objects/".length(), n.length() - 4));
+                    budget.addObject("main:" + id);
                     boolean[] tooLarge = new boolean[1];
-                    byte[] data = readHead(zip.getInputStream(e), MAX_CONTENT_BYTES, tooLarge);
+                    byte[] data;
+                    try (InputStream in = zip.getInputStream(e)) {
+                        data = readHead(in, MAX_CONTENT_BYTES, tooLarge);
+                    }
                     String sha = sha256(data);
                     // Large objects: content stays null (cap), but name/description
                     // are read from the head lines (streaming name) — otherwise they
@@ -84,6 +187,9 @@ public final class TwxParser {
                     var po = new TwxParseResult.ParsedObject(id, TypeRegistry.prefixOf(id),
                             typeName, nd[0], nd[1], sha, content, deriveSubType(id, data),
                             objectTags.getOrDefault(id, List.of()));
+                    if (content != null) {
+                        budget.retain(content);
+                    }
                     objects.add(po);
                     byId.put(id, po);
                 } else if (n.startsWith("files/")) {
@@ -94,17 +200,38 @@ public final class TwxParser {
                     }
                     if (parts.length >= 2 && parts[1].contains(".")) {
                         String objId = shortObjectId(parts[1]);
-                        byte[] data = readLimited(zip.getInputStream(e), MAX_CONTENT_BYTES);
-                        String text = asText(data, n, errors);
-                        if (text != null && byId.containsKey(objId)) {
-                            pendingPayload.computeIfAbsent(objId, k -> new StringBuilder())
-                                    .append("\n\n===== Payload ").append(parts[2]).append(" =====\n")
-                                    .append(text);
+                        TwxParseResult.ParsedObject object = byId.get(objId);
+                        if (object != null && object.content() != null
+                                && e.getSize() <= MAX_CONTENT_BYTES) {
+                            StringBuilder payload = pendingPayload.get(objId);
+                            int used = object.content().length() + (payload == null ? 0 : payload.length());
+                            String header = "\n\n===== Payload " + parts[2] + " =====\n";
+                            int remaining = MAX_CONTENT_BYTES - used - header.length();
+                            if (remaining > 0) {
+                                byte[] data;
+                                boolean[] tooLarge = new boolean[1];
+                                try (InputStream in = zip.getInputStream(e)) {
+                                    data = readHead(in, Math.min(remaining, MAX_CONTENT_BYTES), tooLarge);
+                                }
+                                String text = asText(data, n, errors);
+                                if (text != null) {
+                                    String addition = (header + text);
+                                    int additionLimit = remaining + header.length();
+                                    if (addition.length() > additionLimit) {
+                                        addition = addition.substring(0, additionLimit);
+                                    }
+                                    budget.retain(addition);
+                                    pendingPayload.computeIfAbsent(objId, k -> new StringBuilder()).append(addition);
+                                }
+                            }
                         }
                     }
                 } else if (n.startsWith("toolkits/") && n.endsWith(".zip")) {
                     String toolkitId = shortObjectId(n.substring("toolkits/".length(), n.length() - 4));
-                    toolkits.add(readToolkit(zip.getInputStream(e), toolkitId, errors));
+                    budget.addToolkit(e.getSize());
+                    try (InputStream in = zip.getInputStream(e)) {
+                        toolkits.add(readToolkit(in, toolkitId, errors, limits, budget));
+                    }
                 }
             }
         }
@@ -113,12 +240,13 @@ public final class TwxParser {
         List<TwxParseResult.ParsedObject> merged = new ArrayList<>(objects.size());
         for (var po : objects) {
             StringBuilder extra = pendingPayload.get(po.id());
-            if (extra != null && po.content() != null) {
-                String joined = po.content() + extra;
-                if (joined.length() > MAX_CONTENT_BYTES) {
-                    joined = joined.substring(0, MAX_CONTENT_BYTES);
-                }
-                po = new TwxParseResult.ParsedObject(po.id(), po.prefix(), po.typeName(),
+                if (extra != null && po.content() != null) {
+                    String joined = po.content() + extra;
+                    if (joined.length() > MAX_CONTENT_BYTES) {
+                        joined = joined.substring(0, MAX_CONTENT_BYTES);
+                    }
+                    budget.retain(joined);
+                    po = new TwxParseResult.ParsedObject(po.id(), po.prefix(), po.typeName(),
                         po.name(), po.description(), po.sha256(), joined, po.subType(), po.tags());
             }
             merged.add(po);
@@ -167,14 +295,15 @@ public final class TwxParser {
      * The type attribute carries the catalog type names (process, bpd, twClass, ...); the
      * parser falls back to the prefix table for objects without an entry.
      */
-    private static Map<String, String> readObjectTypes(ZipFile zip) throws Exception {
+    private static Map<String, String> readObjectTypes(ZipFile zip, ParseBudget budget, String scope)
+            throws Exception {
         ZipEntry e = zip.getEntry("META-INF/package.xml");
         if (e == null) {
             return Map.of();
         }
         var dbf = DocumentBuilderFactory.newDefaultInstance();
         dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-        byte[] pkg = zip.getInputStream(e).readNBytes(MAX_PACKAGE_XML_BYTES + 1);
+        byte[] pkg = readEntry(zip, e, MAX_PACKAGE_XML_BYTES + 1);
         if (pkg.length > MAX_PACKAGE_XML_BYTES) {
             return Map.of();
         }
@@ -185,7 +314,9 @@ public final class TwxParser {
             Element o = (Element) objs.item(i);
             String id = o.getAttribute("id"), type = o.getAttribute("type");
             if (!id.isEmpty() && !type.isEmpty()) {
-                types.put(shortObjectId(id), type);
+                String shortId = shortObjectId(id);
+                budget.addObject(scope + ":" + shortId);
+                types.put(shortId, truncate(type, 255));
             }
         }
         return types;
@@ -203,7 +334,7 @@ public final class TwxParser {
         }
         var dbf = DocumentBuilderFactory.newDefaultInstance();
         dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-        byte[] data = zip.getInputStream(e).readNBytes(MAX_PACKAGE_XML_BYTES + 1);
+        byte[] data = readEntry(zip, e, MAX_PACKAGE_XML_BYTES + 1);
         if (data.length > MAX_PACKAGE_XML_BYTES) {
             return Map.of();
         }
@@ -240,7 +371,7 @@ public final class TwxParser {
         var dbf = DocumentBuilderFactory.newDefaultInstance();
         dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
         // Same cap as in the toolkit branch: DOM inflates XML heavily (heap)
-        byte[] pkg = zip.getInputStream(e).readNBytes(MAX_PACKAGE_XML_BYTES + 1);
+        byte[] pkg = readEntry(zip, e, MAX_PACKAGE_XML_BYTES + 1);
         if (pkg.length > MAX_PACKAGE_XML_BYTES) {
             throw new IllegalArgumentException("package.xml ueber " + (MAX_PACKAGE_XML_BYTES / 1024) + " kB");
         }
@@ -264,6 +395,12 @@ public final class TwxParser {
                 attr(root, "buildDescription"),
                 project != null ? "true".equalsIgnoreCase(attr(project, "isToolkit")) : null,
                 deps);
+    }
+
+    private static byte[] readEntry(ZipFile zip, ZipEntry entry, int limit) throws java.io.IOException {
+        try (InputStream in = zip.getInputStream(entry)) {
+            return in.readNBytes(limit);
+        }
     }
 
     // ---------- Toolkit-ZIPs ----------
@@ -298,11 +435,13 @@ public final class TwxParser {
     }
 
     private static TwxParseResult.ParsedToolkit readToolkit(InputStream in, String toolkitId,
-                                                            List<TwxParseResult.ParseError> errors) throws Exception {
+                                                            List<TwxParseResult.ParseError> errors,
+                                                            Limits limits, ParseBudget budget) throws Exception {
         // Size cap against zip bombs: extracted entries can be much larger
         // than the TWX file itself; readAllBytes() without a cap = OOM risk (heap x concurrency)
-        byte[] zipBytes = in.readNBytes(MAX_TOOLKIT_BYTES + 1);
-        if (zipBytes.length > MAX_TOOLKIT_BYTES) {
+        int maxToolkitBytes = (int) Math.min(limits.maxToolkitBytes(), MAX_TOOLKIT_BYTES);
+        byte[] zipBytes = in.readNBytes(maxToolkitBytes + 1);
+        if (zipBytes.length > maxToolkitBytes) {
             throw new IllegalArgumentException("Toolkit " + toolkitId + ": entpackt ueber "
                     + (MAX_TOOLKIT_BYTES / (1024 * 1024)) + " MB — Datei abgelehnen");
         }
@@ -323,7 +462,10 @@ public final class TwxParser {
         try (var zis = new java.util.zip.ZipInputStream(new ByteArrayInputStream(zipBytes))) {
             ZipEntry e;
             while ((e = zis.getNextEntry()) != null) {
+                budget.addEntry();
+                InputStream entry = countedEntry(zis, budget);
                 if (e.isDirectory()) {
+                    drain(entry);
                     continue;
                 }
                 if (e.getName().equals("META-INF/package.xml")) {
@@ -331,7 +473,7 @@ public final class TwxParser {
                     dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
                     // The DOM parser closes the stream passed to it -> otherwise the
                     // ZipInputStream dies and the next getNextEntry() throws "Stream closed".
-                    byte[] pkg = zis.readNBytes(MAX_PACKAGE_XML_BYTES + 1);
+                    byte[] pkg = entry.readNBytes(MAX_PACKAGE_XML_BYTES + 1);
                     if (pkg.length > MAX_PACKAGE_XML_BYTES) {
                         throw new IllegalArgumentException(
                                 "package.xml ueber " + (MAX_PACKAGE_XML_BYTES / 1024) + " kB");
@@ -339,16 +481,20 @@ public final class TwxParser {
                     var doc = dbf.newDocumentBuilder().parse(new ByteArrayInputStream(pkg));
                     Element p = first(doc.getDocumentElement(), "target", "project");
                     Element s = first(doc.getDocumentElement(), "target", "snapshot");
-                    projectName = p != null ? attr(p, "name") : null;
-                    shortName = p != null ? attr(p, "shortName") : null;
-                    version = s != null ? attr(s, "name") : null;
+                    projectName = p != null ? truncate(attr(p, "name"), 255) : null;
+                    shortName = p != null ? truncate(attr(p, "shortName"), 255) : null;
+                    version = s != null ? truncate(attr(s, "name"), 255) : null;
                     nested = parseDependencies(doc);
                     NodeList objs = doc.getElementsByTagName("object");
                     for (int i = 0; i < objs.getLength(); i++) {
                         Element o = (Element) objs.item(i);
                         String id = shortObjectId(attr(o, "id"));
                         if (!id.isEmpty()) {
-                            manifestObjects.put(id, new String[] {attr(o, "name"), attr(o, "type")});
+                            if (!manifestObjects.containsKey(id)) {
+                                budget.addObject(toolkitId + ":" + id);
+                            }
+                            manifestObjects.put(id, new String[] {
+                                    truncate(attr(o, "name"), 255), truncate(attr(o, "type"), 255)});
                         }
                     }
                 } else if (e.getName().startsWith("objects/")) {
@@ -357,20 +503,26 @@ public final class TwxParser {
                     if (id.endsWith(".xml")) {
                         id = id.substring(0, id.length() - 4);
                     }
+                    if (!id.isEmpty() && !manifestObjects.containsKey(id)) {
+                        budget.addObject(toolkitId + ":" + id);
+                    }
                     if (id.matches("\\d{1,3}\\.[0-9A-Za-z-]+")) {
                         entryIds.add(id);
                     }
                     // Read asset objects too: we need name/assetTypeCode as
                     // stub XML so jsFiles targets are recognizable as server files (R-JS-025).
                     if (e.getName().endsWith(".xml") && isAssetLike(id, manifestObjects)) {
-                        String t = asText(zis.readNBytes(MAX_CONTENT_BYTES), e.getName(), errors);
+                        String t = asText(entry.readNBytes(MAX_CONTENT_BYTES), e.getName(), errors);
                         if (t != null) {
+                            budget.retain(t);
                             assetXml.put(id, t);
                         }
                     } else if (e.getName().endsWith(".xml") && isEnvironmentVariableSetLike(id, manifestObjects)) {
-                        String t = asText(zis.readNBytes(MAX_CONTENT_BYTES), e.getName(), errors);
+                        String t = asText(entry.readNBytes(MAX_CONTENT_BYTES), e.getName(), errors);
                         if (t != null) {
-                            environmentVariableXml.put(id, environmentVariableNamesStub(t));
+                            String stub = environmentVariableNamesStub(t);
+                            budget.retain(stub);
+                            environmentVariableXml.put(id, stub);
                         }
                     }
                 } else if (e.getName().startsWith("files/")) {
@@ -379,14 +531,19 @@ public final class TwxParser {
                     String[] parts = e.getName().split("/");
                     if (parts.length >= 3 && !isBinaryName(parts[2]) && parts[1].contains(".")
                             && isAssetLike(shortObjectId(parts[1]), manifestObjects)) {
-                        String t = asText(zis.readNBytes(MAX_CONTENT_BYTES), e.getName(), errors);
+                        String t = asText(entry.readNBytes(MAX_CONTENT_BYTES), e.getName(), errors);
                         if (t != null && !t.isBlank()) {
+                            budget.retain(t);
                             assetJs.computeIfAbsent(shortObjectId(parts[1]), k -> new StringBuilder()).append(t);
                         }
                     }
                 }
+                drain(entry);
             }
         } catch (Exception ex) {
+            if (ex instanceof ArchiveLimitException limitException) {
+                throw limitException;
+            }
             errors.add(new TwxParseResult.ParseError("toolkits/" + toolkitId + ".zip",
                     "Toolkit-ZIP nicht lesbar: " + ex.getMessage()));
         }
@@ -395,22 +552,59 @@ public final class TwxParser {
         ids.addAll(manifestObjects.keySet());
         for (String id : ids) {
             String[] mt = manifestObjects.get(id);
-            String name = mt != null && mt[0] != null && !mt[0].isEmpty() ? mt[0] : id;
-            String type = mt != null && mt[1] != null && !mt[1].isEmpty()
-                    ? mt[1] : TypeRegistry.typeName(TypeRegistry.prefixOf(id));
+            String name = truncate(mt != null && mt[0] != null && !mt[0].isEmpty() ? mt[0] : id, 255);
+            String type = truncate(mt != null && mt[1] != null && !mt[1].isEmpty()
+                    ? mt[1] : TypeRegistry.typeName(TypeRegistry.prefixOf(id)), 255);
             String raw = assetXml.get(id);
             String xml = raw != null ? assetStubXml(raw)
                     : environmentVariableXml.getOrDefault(id, "");
+            budget.retain(xml);
             objects.add(new TwxParseResult.ToolkitObject(id, name, type, xml));
         }
         Map<String, String> jsFiles = new java.util.LinkedHashMap<>();
         for (var en : assetJs.entrySet()) {
             if (ids.contains(en.getKey())) {
-                jsFiles.put(en.getKey(), en.getValue().toString());
+                String content = en.getValue().toString();
+                budget.retain(content);
+                jsFiles.put(en.getKey(), content);
             }
         }
         return new TwxParseResult.ParsedToolkit(toolkitId, projectName, shortName, version, sha,
                 zipBytes.length, objectCount, nested, objects, jsFiles);
+    }
+
+    private static InputStream countedEntry(java.util.zip.ZipInputStream zip, ParseBudget budget) {
+        return new InputStream() {
+            @Override
+            public int read() throws java.io.IOException {
+                int value = zip.read();
+                if (value >= 0) {
+                    budget.consumeExpanded(1);
+                }
+                return value;
+            }
+
+            @Override
+            public int read(byte[] bytes, int offset, int length) throws java.io.IOException {
+                int count = zip.read(bytes, offset, length);
+                if (count > 0) {
+                    budget.consumeExpanded(count);
+                }
+                return count;
+            }
+
+            @Override
+            public void close() {
+                // The enclosing ZipInputStream owns the archive; drain the entry explicitly.
+            }
+        };
+    }
+
+    private static void drain(InputStream in) throws java.io.IOException {
+        byte[] buffer = new byte[16 * 1024];
+        while (in.read(buffer) != -1) {
+            // Counted entry streams enforce the expanded-size budget while draining.
+        }
     }
 
     /** Manifest type or prefix type mentions "asset" (managedAsset 61.*). */

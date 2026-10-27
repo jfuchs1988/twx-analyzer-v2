@@ -6,6 +6,8 @@ import io.twxav2.ingest.TwxParser;
 import io.twxav2.model.*;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import io.quarkus.runtime.StartupEvent;
+import jakarta.enterprise.event.Observes;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -30,10 +32,45 @@ public class IngestService {
     ExclusionService autoExclusions;
 
     @Inject
+    TwxParseLimits parseLimits;
+
+    @Inject
     EntityManager em;
 
     @ConfigProperty(name = "twxav2.uploads.dir")
     String uploadsDir;
+
+    private Path stagingDir() {
+        return Path.of(uploadsDir).resolve(".staging");
+    }
+
+    void cleanAbandonedStagingFiles(@Observes StartupEvent event) {
+        cleanupTemporaryDirectories();
+    }
+
+    void cleanupTemporaryDirectories() {
+        cleanTemporaryDirectory(stagingDir());
+        cleanTemporaryDirectory(Path.of(uploadsDir).resolve(".multipart"));
+    }
+
+    private static void cleanTemporaryDirectory(Path staging) {
+        if (!Files.isDirectory(staging)) {
+            return;
+        }
+        try (var files = Files.list(staging)) {
+            for (Path file : files.toList()) {
+                Files.deleteIfExists(file);
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Could not clean abandoned ingest staging files", e);
+        }
+    }
+
+    /** Creates a staging file on the same filesystem as retained uploads. */
+    public Path createStagingFile(String prefix, String suffix) throws IOException {
+        Files.createDirectories(stagingDir());
+        return Files.createTempFile(stagingDir(), prefix, suffix);
+    }
 
     /**
      * Compute auto-exclusions and store them as ObjectExclusion rows (source AUTO_NAME /
@@ -96,7 +133,7 @@ public class IngestService {
             if (phase != null) {
                 phase.accept(IngestQueue.Phase.PARSE);
             }
-            TwxParseResult parsed = TwxParser.parse(file);
+            TwxParseResult parsed = TwxParser.parse(file, parseLimits.limits());
             var m = parsed.manifest();
             s.projectName = m.projectName();
             s.projectAcronym = m.projectShortName();

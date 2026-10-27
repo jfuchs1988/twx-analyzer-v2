@@ -153,6 +153,36 @@ class TwxParserEdgeTest {
     }
 
     @Test
+    void archiveAndAggregateBudgetsRejectOversizedInputs() throws Exception {
+        Path valid = twx(List.of(
+                entry("META-INF/package.xml", utf8(PKG)),
+                entry("objects/1.a.xml", utf8("<process name=\"A\"/>")),
+                entry("objects/1.b.xml", utf8("<process name=\"B\"/>"))));
+        long fileBytes = Files.size(valid);
+
+        assertLimit(valid, new TwxParser.Limits(fileBytes - 1, 10, 10, Long.MAX_VALUE,
+                Long.MAX_VALUE, 1, TwxParser.MAX_TOOLKIT_BYTES, Long.MAX_VALUE));
+        assertLimit(valid, new TwxParser.Limits(Long.MAX_VALUE, 2, 10, Long.MAX_VALUE,
+                Long.MAX_VALUE, 1, TwxParser.MAX_TOOLKIT_BYTES, Long.MAX_VALUE));
+        assertLimit(valid, new TwxParser.Limits(Long.MAX_VALUE, 10, 1, Long.MAX_VALUE,
+                Long.MAX_VALUE, 1, TwxParser.MAX_TOOLKIT_BYTES, Long.MAX_VALUE));
+        assertLimit(valid, new TwxParser.Limits(Long.MAX_VALUE, 10, 10, 10,
+                Long.MAX_VALUE, 1, TwxParser.MAX_TOOLKIT_BYTES, Long.MAX_VALUE));
+
+        Path content = twx(List.of(
+                entry("META-INF/package.xml", utf8(PKG)),
+                entry("objects/1.a.xml", utf8("<process name=\"A\"/>"))));
+        assertLimit(content, new TwxParser.Limits(Long.MAX_VALUE, 10, 10, Long.MAX_VALUE,
+                1, 1, TwxParser.MAX_TOOLKIT_BYTES, Long.MAX_VALUE));
+    }
+
+    private static void assertLimit(Path file, TwxParser.Limits limits) {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TwxParser.parse(file, limits));
+        assertTrue(error.getMessage().contains("TWX"), error.getMessage());
+    }
+
+    @Test
     void withoutPackageXmlNotValidTwx() throws Exception {
         var ex = assertThrows(IllegalArgumentException.class,
                 () -> TwxParser.parse(twx(List.<Object[]>of(entry("objects/1.a.xml", utf8("<process/>"))))));
