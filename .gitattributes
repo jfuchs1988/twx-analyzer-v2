@@ -1,0 +1,8 @@
+# Line endings: normalize to LF in the repository and in working trees
+# (team works on Windows with core.autocrlf=true; containers expect LF).
+* text=auto eol=lf
+
+# Explicit pins for files that must never carry CRLF (redundant with the
+# global rule, kept for documentation).
+*.sh text eol=lf
+Containerfile text eol=lf

@@ -1,0 +1,51 @@
+TWX Analyzer v2
+Copyright 2026 Johannes Fuchs - IT Consulting
+Creator and rights holder of this software: Johannes Fuchs - IT Consulting
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------
+Provenance
+--------------------------------------------------------------------
+
+Parts of the analysis core are based on Dosvak LLC's Apache-2.0-licensed
+project "TWX Code Analyzer":
+https://github.com/dosvak/twx-code-analyzer
+Upstream attribution: This product includes software developed by Dosvak
+LLC (https://dosvak.com). Copyright 2026 Dosvak LLC.
+
+Upstream commit 303bf265280d07532972bf7eeca96dc100fd8d4c (2026-09-19) was
+used for the provenance review on 2026-10-27. This is the reviewed reference
+revision; this project's original import commit is not recorded. Files
+adapted for TWX Analyzer v2 are under
+src/main/java/io/twxav2/analysis/ref/{model,parse,rules,util}; additionally,
+RefModel.java contains one reused method. These files carry source and
+modification notices in their headers. The Apache-2.0 license is included
+in LICENSE. This attribution does not imply any affiliation with or
+endorsement by Dosvak LLC.
+
+IBM, IBM Business Automation Workflow, and IBM Business Process Manager are
+trademarks of International Business Machines Corporation. This project is
+not affiliated with, endorsed by, or supported by IBM, and is not affiliated
+with Dosvak LLC.
+
+Project-authored, non-derived components include the platform around the
+analysis core: the Quarkus REST API, ingest/parser integration, MariaDB
+persistence, React/Mantine frontend, direct BPM import, search, diagrams,
+language switching, quality gate, exports, project-specific rule catalog
+changes (including targeted false-positive fixes), and German rule-text
+overlays (`ruletexts-de.properties`).
+
+--------------------------------------------------------------------
+Third-party dependency inventory
+--------------------------------------------------------------------
+
+  * The complete resolved Maven and npm dependency inventory, including license
+    declarations, versions, coordinates/package sources, and scope notes, is in
+    docs/THIRD-PARTY-NOTICES.md (also included in the container image).
+  * The runtime includes Mozilla Rhino 1.9.1 (MPL-2.0) for JavaScript analysis
+    and MariaDB Connector/J 3.5.10 (LGPL-2.1-or-later). Their project/source
+    links and the resolved third-party artifact list are in that inventory.
+  * Quarkus and many transitive components declare Apache-2.0; other declared
+    terms include EPL/EDL, BSD, MIT, ISC, and public-domain licenses. Preserve
+    each redistributed component's applicable license and attribution notices.
