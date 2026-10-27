@@ -50,7 +50,7 @@ jobs:
             sh -c "mvn -B -ntp -Djacoco.destFile=target/jacoco.exec -Djacoco.dataFile=target/jacoco.exec test && mvn -B -ntp -DskipTests package"
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
