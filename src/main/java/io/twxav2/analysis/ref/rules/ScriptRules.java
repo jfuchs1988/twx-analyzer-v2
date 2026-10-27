@@ -1,0 +1,227 @@
+// Derived from Dosvak LLC twx-code-analyzer (Apache-2.0); modified for TWX Analyzer v2. See NOTICE.
+// Changes: package/rule IDs, false-positive fixes, adapters.
+package io.twxav2.analysis.ref.rules;
+
+import java.util.*;
+import java.util.regex.*;
+import io.twxav2.analysis.ref.model.*;
+import io.twxav2.analysis.ref.util.TimedText;
+
+/** JavaScript rules (server scripts, conditions, mappings, coach view handlers): security, deprecated APIs, performance, robustness, size.
+ *  Pattern based (regex on the code with strings/comments stripped) plus a Rhino syntax check when the Rhino jar is on the classpath. */
+public final class ScriptRules {
+    private ScriptRules() {}
+    static final String CAT = "Script";
+
+    /** Time budget of one pattern over one script; a PatternRule turns an exhausted budget into an INFO finding, any other rule fails with the reason (see Analyzer). */
+    static final long MATCH_BUDGET_MS = 2000;
+    /** Script text for a regular expression: every rule pattern runs over a {@link TimedText} so that a pathological script cannot hold a worker. */
+    static CharSequence timed(String text, Script s) { return timed(text, s == null ? "a script" : s.location); }
+    static CharSequence timed(String text, String what) { return new TimedText(text, MATCH_BUDGET_MS, what); }
+    /** Regex rule over every script; the pattern is applied to the code with comments and string literals blanked out unless rawStrings is true. */
+    static abstract class PatternRule extends Rule {
+        final Pattern p; final boolean rawStrings;
+        PatternRule(String id, String title, String cat, Severity sev, String desc, String rem, String ref, String regex, boolean rawStrings) { super(id, title, cat, sev, desc, rem, ref); p = Pattern.compile(regex, Pattern.MULTILINE); this.rawStrings = rawStrings; }
+        boolean skip(Script s) { return s.kind.equals("template"); }
+        /** Text the regex runs on: raw code (rawStrings) or comments+strings blanked; rules may refine (e.g. blank only comments). */
+        String scan(String code) { return rawStrings ? code : strip(code); }
+        public void check(RuleContext c, List<Finding> out) {
+            for (Script s : c.allScripts()) { if (skip(s)) continue; String code = scan(s.code); Matcher m = p.matcher(timed(code, s)); int n = 0; String ev = "";
+                try { while (m.find() && n < 5) { n++; if (ev.isEmpty()) ev = line(s.code, code, m.start()); } }
+                catch (TimedText.Timeout t) { Finding f = Finding.of(this, s.object, s.itemId, itemName(s), s.location, "Rule skipped on this script: " + t.getMessage(), ""); f.severity = Severity.INFO.name(); f.score = 0; out.add(f); continue; }
+                if (n > 0) out.add(Finding.of(this, s.object, s.itemId, itemName(s), s.location, message(s, n, ev), ev)); }
+        }
+        String message(Script s, int n, String ev) { return title + " in " + s.location + (n > 1 ? " (" + n + " occurrences)" : ""); }
+    }
+    static String itemName(Script s) { int a = s.location.indexOf('\''), b = s.location.indexOf('\'', a + 1); return a >= 0 && b > a ? s.location.substring(a + 1, b) : ""; }
+    /** Blank out comments and string literal contents (keeps positions so line numbers match). */
+    static String strip(String code) {
+        StringBuilder sb = new StringBuilder(code.length()); int i = 0, n = code.length();
+        while (i < n) { char ch = code.charAt(i);
+            if (ch == '/' && i + 1 < n && code.charAt(i + 1) == '/') { while (i < n && code.charAt(i) != '\n') { sb.append(' '); i++; } }
+            else if (ch == '/' && i + 1 < n && code.charAt(i + 1) == '*') { while (i < n && !(code.charAt(i) == '*' && i + 1 < n && code.charAt(i + 1) == '/')) { sb.append(code.charAt(i) == '\n' ? '\n' : ' '); i++; } sb.append("  "); i += 2; }
+            else if (ch == '"' || ch == '\'') { char q = ch; sb.append(q); i++; while (i < n && code.charAt(i) != q) { if (code.charAt(i) == '\\') { sb.append("  "); i += 2; continue; } sb.append(code.charAt(i) == '\n' ? '\n' : 'x'); i++; } if (i < n) { sb.append(q); i++; } }
+            else { sb.append(ch); i++; } }
+        return sb.toString();
+    }
+    /** Like strip() but string literal contents are KEPT (for rules that must flag literals, e.g. hard-coded URLs). */
+    static String blankComments(String code) {
+        StringBuilder sb = new StringBuilder(code.length()); int i = 0, n = code.length();
+        while (i < n) { char ch = code.charAt(i);
+            if (ch == '/' && i + 1 < n && code.charAt(i + 1) == '/') { while (i < n && code.charAt(i) != '\n') { sb.append(' '); i++; } }
+            else if (ch == '/' && i + 1 < n && code.charAt(i + 1) == '*') { while (i < n && !(code.charAt(i) == '*' && i + 1 < n && code.charAt(i + 1) == '/')) { sb.append(code.charAt(i) == '\n' ? '\n' : ' '); i++; } sb.append("  "); i += 2; }
+            else if (ch == '"' || ch == '\'') { char q = ch; sb.append(q); i++; while (i < n && code.charAt(i) != q) { if (code.charAt(i) == '\\') { sb.append(code, i, i + 2); i += 2; continue; } sb.append(code.charAt(i)); i++; } if (i < n) { sb.append(q); i++; } }
+            else { sb.append(ch); i++; } }
+        return sb.toString();
+    }
+    static String line(String orig, String stripped, int pos) { int a = stripped.lastIndexOf('\n', pos) + 1, b = stripped.indexOf('\n', pos); if (b < 0) b = stripped.length(); String ln = orig.substring(a, Math.min(b, orig.length())).trim(); int no = 1; for (int i = 0; i < a; i++) if (stripped.charAt(i) == '\n') no++; return "line " + no + ": " + (ln.length() > 160 ? ln.substring(0, 160) + "..." : ln); }
+
+    public static List<Rule> rules() {
+        List<Rule> l = new ArrayList<>();
+        l.add(new PatternRule("R-JS-001", "SQL built by string concatenation", "Security", Severity.MAJOR, "A SQL statement is assembled from variables with string concatenation. Any value that comes from a user or an external system can inject SQL (data theft, corruption). It also defeats statement caching.",
+                "Use parameter markers (?) with the SQL Execute Statement parameters list (tw.local.parameters as SQLParameter[]), never concatenate values into the statement.", "IDA check-service-item-sql-injection-in-script", "(?i)(select|insert|update|delete|merge)\\b[^;\\n]*\\+\\s*tw\\.|\\+\\s*[\"'][^\"']*(?i:where|values|set)\\b", true) {
+            boolean skip(Script s) { return s.object.type.equals("coachView") || s.kind.equals("template"); }
+        }.impact(2));
+        l.add(new Rule("R-JS-002", "Variable inserted into a SQL template", "Security", Severity.MAJOR, "A text-template script (Server Script in 'text' mode) builds a SQL statement and inserts variables with <#= tw.local.x #>. The inserted value is not escaped: user-controlled values allow SQL injection and even harmless values break the statement when they contain quotes.",
+                "Use parameter markers (?) with the SQLParameter list of the SQL Execute Statement service; insert only trusted identifiers (table names from EPVs) through templates.", "IDA check-service-item-sql-injection-in-script") {
+            public void check(RuleContext c, List<Finding> out) { Pattern sql = Pattern.compile("(?is)\\b(select|insert|update|delete|merge|call)\\b"), ins = Pattern.compile("<#=\\s*(tw\\.[A-Za-z0-9_.\\[\\]]+)[^#]*#>"); for (Script s : c.allScripts()) { if (!s.kind.equals("template") || !sql.matcher(timed(s.code, s)).find()) continue; Matcher m = ins.matcher(timed(s.code, s)); int n = 0; StringBuilder ev = new StringBuilder(); while (m.find()) { String v = m.group(1).toLowerCase(java.util.Locale.ROOT); if (v.contains("tablename") || v.contains("schema") || v.startsWith("tw.epv.") || v.startsWith("tw.env.")) continue; n++; if (ev.length() < 200) ev.append(m.group(1)).append(' '); } if (n > 0) out.add(Finding.of(this, s.object, s.itemId, itemName(s), s.location, n + " variable(s) inserted into a SQL template in " + s.location, ev.toString().trim())); } }
+        }.impact(2));
+        l.add(new PatternRule("R-JS-003", "Access to internal BPM database tables", "Security", Severity.CRITICAL, "The script references internal repository / runtime tables (LSW_*, BPM_*). Their structure is unsupported, changes between versions and direct access breaks migrations and support.",
+                "Use the REST API, the JavaScript API (tw.system, TWProcessInstance ...) or the Performance Data Warehouse views instead of the internal tables.", "IDA check-service-item-contains-inner-table-in-script", "(?i)\\bLSW_[A-Z_]+|\\bBPM_[A-Z_]+_T\\b|\\bLSW\\.|\\bBPMDB\\.", true) {}.impact(2));
+        l.add(new PatternRule("R-JS-004", "Thread.sleep in a script", "Performance", Severity.MAJOR, "java.lang.Thread.sleep blocks a server thread (and the JDBC connection/transaction) for the whole wait; under load this exhausts the thread pool.", "Use a timer event or an undercover agent for waits; for polling use a timer intermediate event with a loop.", "IDA check-service-item-contains-sleep", "Thread\\.sleep\\s*\\(|java\\.lang\\.Thread", false) {});
+        l.add(new PatternRule("R-JS-005", "LiveConnect / Java class access from JavaScript", "Migration", Severity.MINOR, "The script uses LiveConnect (Packages.*, java.*, new java...) to call Java directly. LiveConnect is deprecated, unsupported on the newer engine and blocked in CP4BA containers.", "Replace with a Java integration service (external Java class through the Java Integration component) or a REST call.", "IDA check-service-javascript-live-connect", "\\bPackages\\.|\\bjava\\.(?:lang|util|io|net|sql)\\.|new\\s+java\\.", false) {});
+        l.add(new PatternRule("R-JS-006", "eval / Function constructor", "Security", Severity.MAJOR, "eval() or new Function() executes arbitrary code built at runtime; with user data this is a code injection and it prevents any static verification.", "Replace eval with JSON.parse for data, explicit property access (obj[name]) or a switch on known values.", "", "\\beval\\s*\\(|new\\s+Function\\s*\\(", false) {}.impact(2));
+        l.add(new PatternRule("R-JS-007", "Hard-coded credentials or secrets", "Security", Severity.CRITICAL, "A password, secret, token or API key is written into the script. Secrets in the TWX are visible to every developer and exported with every snapshot.", "Move the secret to an environment variable / EPV managed per environment, a server credential (Process Admin > Servers) or a secure vault, and reference it from the script.", "", "(?i)(password|passwd|pwd|secret|apikey|api_key|token|authorization)\\s*[:=]\\s*[\"'][^\"']{4,}[\"']|Basic\\s+[A-Za-z0-9+/=]{16,}", true) {}.impact(2));
+        l.add(new PatternRule("R-JS-008", "Hard-coded server URL or host", "Configuration", Severity.MAJOR, "An http(s):// URL, hostname or IP address is hard-coded in the script; it breaks when the application is promoted to another environment.", "Put the URL into an environment variable or an EPV and read it with tw.env / tw.epv.", "", "https?://(?!www\\.w3\\.org|schemas\\.)[A-Za-z0-9.\\-]+(?::\\d+)?/|\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b", true) { boolean skip(Script s) { return s.object.type.equals("coachView") && s.kind.equals("inline"); } String scan(String code) { return blankComments(code); } });
+        l.add(new PatternRule("R-JS-009", "Debug output left in the code", "Quality", Severity.MINOR, "log.info / console.log / alert statements left in scripts flood the logs (server) or interrupt the user (client).", "Remove debug statements or guard them with a log-level EPV; keep log.error for real errors.", "", "\\bconsole\\.(log|debug|info|warn)\\s*\\(|\\balert\\s*\\(|\\blog\\.info\\s*\\(|\\bSystem\\.out\\.print", false) {});
+        l.add(new PatternRule("R-JS-010", "toString() / XML serialisation of business objects in mappings or scripts", "Performance", Severity.MAJOR, "Converting a complex object to a string (toString(), toXMLString(), XML serialisation) in a mapping or a script is expensive for large objects and lists and usually unnecessary.", "Map the object directly; use JSON.stringify only for small payloads; avoid tw.local.x.toString() in conditions.", "IDA check-service-item-contain-tostring-datamapping", "\\.toXMLString\\s*\\(|\\.toXML\\s*\\(|tw\\.local\\.[A-Za-z0-9_.\\[\\]]+\\.toString\\s*\\(\\)", false) {});
+        l.add(new PatternRule("R-JS-011", "listLength used inside a loop condition", "Performance", Severity.MINOR, "Using list.listLength (or .length()) in the loop condition re-evaluates the TW list wrapper on every iteration; for large lists this is measurably slower.", "Cache the length in a local variable before the loop: var n = tw.local.items.listLength; for (var i = 0; i < n; i++) ...", "", "for\\s*\\([^;]*;[^;]*\\.(listLength|length\\(\\))\\s*[;<>]", false) {});
+        l.add(new PatternRule("R-JS-012", "Synchronous XMLHttpRequest / blocking browser call", "Performance", Severity.MAJOR, "A synchronous XMLHttpRequest (async=false) or a blocking dialog freezes the coach UI and is deprecated by browsers.", "Use asynchronous requests (Service Call control, AJAX service via the coach framework) and callbacks/promises.", "", "\\.open\\s*\\([^)]*,\\s*false\\s*\\)|\\bconfirm\\s*\\(|\\bprompt\\s*\\(", false) {});
+        l.add(new PatternRule("R-JS-013", "Global variable leak (assignment without var/let/const)", "Quality", Severity.MINOR, "A variable is assigned without a declaration and therefore becomes a global (server: shared per execution context; browser: window). Globals collide between coach views and hide bugs.", "Declare every variable (var/let/const) in the narrowest scope.", "", "^\\s*(?!tw\\.|this\\.|var |let |const |return|if|for|while|else|function|\\}|\\{|/)([A-Za-z_$][A-Za-z0-9_$]*)\\s*=[^=]", false) {
+            boolean skip(Script s) { return !s.kind.equals("script") && !s.kind.equals("handler") && !s.kind.equals("inline"); }
+            public void check(RuleContext c, List<Finding> out) {
+                for (Script s : c.allScripts()) { if (skip(s)) continue; String code = strip(s.code); Set<String> declared = new HashSet<>(); Matcher d = Pattern.compile("\\b(?:var|let|const|function)\\s+([A-Za-z_$][A-Za-z0-9_$]*)|\\bvar\\s+[^;]*?,\\s*([A-Za-z_$][A-Za-z0-9_$]*)|function\\s*[A-Za-z_$]*\\s*\\(([^)]*)\\)").matcher(code);
+                    while (d.find()) { if (d.group(1) != null) declared.add(d.group(1)); if (d.group(2) != null) declared.add(d.group(2)); if (d.group(3) != null) for (String a : d.group(3).split(",")) declared.add(a.trim()); }
+                    Matcher m = p.matcher(timed(code, s)); int n = 0; String ev = ""; Set<String> names = new TreeSet<>();
+                    while (m.find()) { String nm = m.group(1); if (declared.contains(nm) || nm.equals("event") || nm.equals("context")) continue; if (names.add(nm)) { n++; if (ev.isEmpty()) ev = line(s.code, code, m.start()); } }
+                    if (n > 0) out.add(Finding.of(this, s.object, s.itemId, itemName(s), s.location, n + " undeclared variable(s) " + names + " in " + s.location, ev)); }
+            }
+        });
+        l.add(new PatternRule("R-JS-014", "Empty catch block", "Quality", Severity.MAJOR, "An exception is caught and ignored; failures become invisible and later steps run with wrong data.", "Log the error (log.error) and set an error outcome, or rethrow (throw e) so the error event fires.", "", "catch\\s*\\([^()]*\\)\\s*\\{\\s*\\}", false) {});
+        l.add(new PatternRule("R-JS-015", "Use of == null / == undefined comparisons with type coercion", "Quality", Severity.INFO, "Loose equality (==) with strings/numbers relies on type coercion and is a frequent source of subtle bugs (0 == '' is true).", "Use === / !== except for the deliberate == null idiom.", "", "[^=!<>]==[^=]\\s*(?:\"|'|\\d)|(?:\"|'|\\d)\\s*==[^=]", false) { String message(Script s, int n, String ev) { return "Loose equality (==) with a literal in " + s.location + (n > 1 ? " (" + n + " occurrences)" : ""); } });
+        l.add(new PatternRule("R-JS-016", "tw.system.model / tw.system.executeServiceByName usage", "Quality", Severity.MINOR, "Dynamic service invocation by name (tw.system.executeServiceByName, tw.system.model.findProcessByName) is not visible as a dependency: 'where used' misses it, refactoring breaks it silently and it bypasses type checking.", "Attach the service directly (linked service / sub process step) so the dependency is explicit.", "", "tw\\.system\\.executeServiceByName|tw\\.system\\.model\\.find\\w+ByName|tw\\.system\\.startProcessByName", false) {});
+        l.add(new PatternRule("R-JS-017", "Direct DOM manipulation with global selectors in a coach view", "UI", Severity.MINOR, "The coach view script queries the whole document (document.getElementById, $('#id'), document.querySelector without this.context.element). With several instances of the view on a page or in a table the wrong element is hit.", "Scope every DOM query to the view: this.context.element.querySelector(...) / $(this.context.element).find(...).", "", "document\\.getElementById\\s*\\(|document\\.querySelector(All)?\\s*\\(|\\$\\s*\\(\\s*[\"']#", false) { boolean skip(Script s) { return !s.object.type.equals("coachView"); } });
+        l.add(new PatternRule("R-JS-018", "External script or resource loaded from the internet", "Security", Severity.MAJOR, "The coach view loads a script/style from an external host (CDN). Coach pages enforce a Content Security Policy (default-src 'self'), so the load is blocked, and it makes the UI depend on internet access.", "Bundle the library as a toolkit web asset and reference it as a view resource.", "", "https?://(cdnjs|cdn\\.|unpkg|jsdelivr|ajax\\.googleapis|code\\.jquery|maxcdn|fonts\\.googleapis)[^\"'\\s]*", true) { boolean skip(Script s) { return !s.object.type.equals("coachView"); } });
+        l.add(new PatternRule("R-JS-019", "Deprecated / removed JavaScript API", "Migration", Severity.MINOR, "The script uses an API that is deprecated or removed in BAW (tw.system.coachValidation, heritage coach APIs, escape/unescape, __proto__, arguments.callee, with statement).", "Replace with the supported alternative (tw.system.coachValidation -> client-side validation; encodeURIComponent; Object.getPrototypeOf; named functions).", "", "tw\\.system\\.coachValidation|\\bunescape\\s*\\(|\\bescape\\s*\\(|__proto__|arguments\\.callee|^\\s*with\\s*\\(", false) {});
+        l.add(new PatternRule("R-JS-020", "Date built from string parsing", "Quality", Severity.INFO, "new Date('...') / Date.parse with non-ISO strings behaves differently per browser and per server locale.", "Use tw.local dates (TWDate), new Date(year, month, day) or ISO 8601 strings.", "", "new\\s+Date\\s*\\(\\s*[\"'][^\"']*[\"']\\s*\\)|Date\\.parse\\s*\\(", true) {});
+        l.add(new Rule("R-JS-021", "Script too long", "Quality", Severity.MAJOR, "A script step / handler has more than 100 lines (300 = critical). Long scripts are hard to test and review; the logic usually belongs in reusable service flows or toolkit functions.", "Split the script into smaller steps or services; move reusable functions to a toolkit web asset (client) or a general system service (server).", "IDA check-service-javascript-length") {
+            public void check(RuleContext c, List<Finding> out) { int med = c.threshold("scriptLinesMedium", 100), high = c.threshold("scriptLinesHigh", 300); for (Script s : c.allScripts()) { int n = s.lines(); if (n > med) { Finding f = Finding.of(this, s.object, s.itemId, itemName(s), s.location, s.location + " has " + n + " lines", ""); if (n > high) { f.severity = Severity.CRITICAL.name(); f.score = Severity.CRITICAL.weight; } out.add(f); } } }
+        });
+        l.add(new Rule("R-JS-022", "JavaScript syntax error", CAT, Severity.CRITICAL, "The script does not parse as JavaScript. It fails at runtime the first time the step runs.", "Fix the syntax (unbalanced braces/quotes, missing operators). Server scripts must be ES5 (Rhino): no arrow functions, let/const, template strings.", "") {
+            public void check(RuleContext c, List<Finding> out) { if (!Parse.available()) return; for (Script s : c.allScripts()) { if (!s.kind.equals("script") && !s.kind.equals("handler") && !s.kind.equals("inline")) continue; String err = s.object.type.equals("coachView") ? Parse.firstErrorClient(s.code) : Parse.firstError(s.code, 180); if (err != null) out.add(Finding.of(this, s.object, s.itemId, itemName(s), s.location, "Syntax error in " + s.location + ": " + err, "")); } }
+        }.impact(2));
+        l.add(new Rule("R-JS-023", "ES6+ syntax in a server-side script", "Migration", Severity.MAJOR, "Server scripts run on the Rhino engine (ECMAScript 5 in BPM 8.x / BAW 18-20). Arrow functions, let/const, template literals, classes and spread fail at runtime on those versions.", "Use ES5 syntax in server scripts (var, function, string concatenation); keep ES6 for client-side coach view code only.", "") {
+            public void check(RuleContext c, List<Finding> out) { Pattern p = Pattern.compile("=>|\\blet\\s+[A-Za-z_$]|\\bconst\\s+[A-Za-z_$]|`|\\bclass\\s+[A-Z]|\\.\\.\\.[A-Za-z_$]"); for (Script s : c.allScripts()) { if (s.object.type.equals("coachView") || !(s.kind.equals("script") || s.kind.equals("condition") || s.kind.equals("mapping") || s.kind.equals("expression"))) continue; Matcher m = p.matcher(timed(strip(s.code), s)); if (m.find()) out.add(Finding.of(this, s.object, s.itemId, itemName(s), s.location, "ES6 syntax (" + m.group() + ") in server script " + s.location, line(s.code, strip(s.code), m.start()))); } }
+        });
+        l.add(new Rule("R-JS-024", "Deeply nested code", "Quality", Severity.MINOR, "The script nests blocks more than 5 levels deep; deeply nested logic is error prone and hard to test.", "Extract nested blocks into functions / separate steps, use early returns.", "") {
+            public void check(RuleContext c, List<Finding> out) { for (Script s : c.allScripts()) { int depth = 0, max = 0; String code = strip(s.code); for (int i = 0; i < code.length(); i++) { char ch = code.charAt(i); if (ch == '{') { depth++; max = Math.max(max, depth); } else if (ch == '}') depth--; } if (max > 5) out.add(Finding.of(this, s.object, s.itemId, itemName(s), s.location, "Nesting depth " + max + " in " + s.location, "")); } }
+        });
+        return l;
+    }
+
+    /** Optional Rhino based syntax check (org.mozilla.javascript on the classpath). */
+    static final class Parse {
+        static Boolean avail;
+        static boolean available() { if (avail == null) { try { Class.forName("org.mozilla.javascript.Parser"); avail = true; } catch (Throwable t) { avail = false; } } return avail; }
+        static String syntaxError(String code, int version) {
+            try {
+                org.mozilla.javascript.CompilerEnvirons env = new org.mozilla.javascript.CompilerEnvirons(); env.setRecoverFromErrors(true); env.setLanguageVersion(version); env.setStrictMode(false); env.setAllowSharpComments(true);
+                final StringBuilder err = new StringBuilder();
+                env.setErrorReporter(new org.mozilla.javascript.ErrorReporter() {
+                    public void warning(String m, String src, int line, String ls, int off) {}
+                    public void error(String m, String src, int line, String ls, int off) { if (err.length() == 0) err.append("line ").append(line).append(": ").append(m); }
+                    public org.mozilla.javascript.EvaluatorException runtimeError(String m, String src, int line, String ls, int off) { return new org.mozilla.javascript.EvaluatorException(m); }
+                });
+                new org.mozilla.javascript.Parser(env).parse("function __tca__(event, context) {\n" + code + "\n}", "script", 0); return err.length() == 0 ? null : err.toString();
+            } catch (Throwable t) { String m = t.getMessage(); return m == null ? "syntax error" : m.replaceAll("\\s+", " "); }
+        }
+        static String firstError(String code, int version) {
+            try {
+                org.mozilla.javascript.CompilerEnvirons env = new org.mozilla.javascript.CompilerEnvirons(); env.setRecoverFromErrors(true); env.setLanguageVersion(version); env.setStrictMode(false);
+                final StringBuilder err = new StringBuilder();
+                env.setErrorReporter(new org.mozilla.javascript.ErrorReporter() {
+                    public void warning(String m, String src, int line, String ls, int off) {}
+                    public void error(String m, String src, int line, String ls, int off) { if (err.length() == 0) err.append("line ").append(Math.max(1, line)).append(": ").append(m).append(ls != null && !ls.trim().isEmpty() ? " -> " + ls.trim() : ""); }
+                    public org.mozilla.javascript.EvaluatorException runtimeError(String m, String src, int line, String ls, int off) { return new org.mozilla.javascript.EvaluatorException(m); }
+                });
+                try { new org.mozilla.javascript.Parser(env).parse("function __tca__(event, context) {\n" + code + "\n}", "script", 0); } catch (Throwable t) { if (err.length() == 0) err.append(String.valueOf(t.getMessage())); }
+                if (err.length() > 0) return err.toString();
+                if (version < 200) { String es6 = es6OnServerPath(code); if (es6 != null) return es6; }
+                return null;
+            } catch (Throwable t) { return String.valueOf(t.getMessage()); }
+        }
+
+        /**
+         * Rhino's own language-version switch is too lenient: the shipped Rhino 1.8.0
+         * parses ES6 without errors even at version 180. But the server runs the old
+         * ES5 Rhino of the BAW JVM — these constructs break there at runtime. Checked
+         * against the literal-free text (see {@link #stripLiterals}); findings with
+         * line and snippet like the Rhino path.
+         */
+        static String es6OnServerPath(String code) {
+            String bare = stripLiterals(code);
+            String[][] pats = {
+                    {"=>", "ES6 arrow function is not supported by the server-side Rhino (ES5)"},
+                    {"`", "ES6 template literal is not supported by the server-side Rhino (ES5)"},
+                    {"\\.\\.\\.", "ES6 spread/rest syntax is not supported by the server-side Rhino (ES5)"},
+                    {"\\blet\\s+[A-Za-z_$]", "ES6 'let' is not supported by the server-side Rhino (ES5)"},
+                    {"\\bconst\\s+[A-Za-z_$]", "ES6 'const' is not supported by the server-side Rhino (ES5)"},
+                    {"\\bclass\\s+[A-Za-z_$]", "ES6 class is not supported by the server-side Rhino (ES5)"},
+                    {"\\bfunction\\s*\\*", "ES6 generator is not supported by the server-side Rhino (ES5)"},
+                    {"\\bvar\\s+[\\[{]", "ES6 destructuring is not supported by the server-side Rhino (ES5)"}};
+            for (String[] pe : pats) {
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile(pe[0]).matcher(bare);
+                if (!m.find()) continue;
+                int line = 1 + countChar(bare, '\n', m.start());
+                int ls = bare.lastIndexOf('\n', m.start()) + 1;
+                String src = bare.substring(ls, Math.min(bare.length(), bare.indexOf('\n', ls) < 0 ? bare.length() : bare.indexOf('\n', ls))).trim();
+                return "line " + line + ": " + pe[1] + (!src.isEmpty() ? " -> " + src : "");
+            }
+            return null;
+        }
+
+        private static int countChar(String s, char c, int to) { int n = 0; for (int i = 0; i < to; i++) if (s.charAt(i) == c) n++; return n; }
+
+        /** Replaces the content of comments and strings/regexes with spaces
+         *  (length and line breaks are preserved) so the ES6 patterns do not
+         *  report findings inside texts. */
+        static String stripLiterals(String s) {
+            char[] o = s.toCharArray();
+            for (int i = 0; i < o.length; ) {
+                char c = o[i];
+                if (c == '/' && i + 1 < o.length && o[i + 1] == '/') {
+                    while (i < o.length && o[i] != '\n') { if (o[i] != '\n') o[i] = ' '; i++; }
+                } else if (c == '/' && i + 1 < o.length && o[i + 1] == '*') {
+                    int end = s.indexOf("*/", i + 2); end = end < 0 ? o.length : end + 2;
+                    for (int j = i; j < end; j++) if (o[j] != '\n') o[j] = ' ';
+                    i = end;
+                } else if (c == '"' || c == '\'' || c == '`') {
+                    int j = i + 1;
+                    while (j < o.length) { if (o[j] == '\\') j += 2; else if (o[j] == c || o[j] == '\n') break; else j++; }
+                    for (int k = i + 1; k < Math.min(j, o.length); k++) if (o[k] != '\n') o[k] = ' ';
+                    i = Math.min(j + 1, o.length);
+                } else if (c == '/' && i > 0 && "=(,:[!&|?{};%\n".indexOf(prevSig(o, i)) >= 0) {
+                    int j = i + 1;
+                    while (j < o.length && o[j] != '/' && o[j] != '\n') { if (o[j] == '\\') j++; j++; }
+                    if (j < o.length && o[j] == '/') { for (int k = i + 1; k < j; k++) if (o[k] != '\n') o[k] = ' '; i = j + 1; }
+                    else i++;
+                } else i++;
+            }
+            return new String(o);
+        }
+
+        private static char prevSig(char[] o, int i) { for (int k = i - 1; k >= 0; k--) if (!Character.isWhitespace(o[k])) return o[k]; return '\0'; }
+
+        /** Deviation from the reference project: Rhino 1.8.0 does not parse browser-typical ES6 constructs
+         *  even at VERSION_ES6 — array/object spread, rest parameters, async/await,
+         *  class (measured against rhino-1.8.0). Coach view code runs in the browser, not on
+         *  Rhino; neutralizable spots are rewritten before checking, non-
+         *  neutralizable ones (class, generator, rest parameters in arrow functions) skip
+         *  the check — otherwise false positives like "Syntax error in load handler". */
+        static String firstErrorClient(String code) {
+            if (code.matches("(?s).*\\bclass\\s+[A-Za-z_$].*") || code.matches("(?s).*\\bfunction\\s*\\*.*")
+                    || code.matches("(?s).*\\byield\\b.*")) {
+                return null;
+            }
+            String n = code
+                    .replaceAll("\\(\\s*\\.{3,}\\s*([A-Za-z_$][\\w$]*)\\s*\\)", "($1)")
+                    .replaceAll("\\.{3,}\\s*", "void ")
+                    .replaceAll("\\basync\\s+function\\b", "function")
+                    .replaceAll("\\bawait\\b", "void");
+            if (n.matches("(?s).*\\.{2,}.*") || n.matches("(?s).*\\basync\\b.*")) {
+                return null; // leftover async/dot remnants -> not safely rewritable for Rhino
+            }
+            return firstError(n, 200);
+        }
+    }
+}
