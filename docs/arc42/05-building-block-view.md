@@ -16,7 +16,7 @@
 
 ## Level 2 — Frontend
 
-`frontend/src/app/` provides the application shell and navigation. `frontend/src/features/` groups screens and feature-specific components by snapshots, toolkits, search, dashboard, comparison, settings, and import. `frontend/src/shared/` contains typed API calls, localization/design providers, and cross-feature reusable components. Vite builds this SPA into `frontend/dist`; a separate Nginx image serves it and proxies API/OpenAPI routes to Quarkus.
+`frontend/src/app/` provides the application shell and navigation. The navigation groups process-app snapshots and toolkits under the localized Products menu. `frontend/src/features/` groups screens and feature-specific components by snapshots, toolkits, search, dashboard, comparison, settings, and import. `frontend/src/shared/` contains typed API calls, localization/design providers, and cross-feature reusable components. Vite builds this SPA into `frontend/dist`; a separate Nginx image serves it and proxies API/OpenAPI routes to Quarkus.
 
 ## Dependencies
 
