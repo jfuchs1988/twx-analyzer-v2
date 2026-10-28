@@ -23,6 +23,7 @@ import { parseHash, type View } from "./navigation";
 
 export default function App() {
   const [view, setView] = useState<View>(() => parseHash(window.location.hash) ?? { page: "list" });
+  const [productsOpened, setProductsOpened] = useState(() => isProductView(view));
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure();
   const { colorScheme, setColorScheme } = useMantineColorScheme();
   const { design } = useDesign();
@@ -37,6 +38,10 @@ export default function App() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+
+  useEffect(() => {
+    if (isProductView(view)) setProductsOpened(true);
+  }, [view]);
 
   // Navigation: clear the comparison deep link only when leaving the page,
   // otherwise ComparePage owns hash maintenance (replaceState, no event).
@@ -97,17 +102,25 @@ export default function App() {
           onClick={() => { navigate({ page: "dashboard" }); toggleMobile(); }}
         />
         <NavLink
-          label={tr("Prozess-Apps", "Process apps")}
-          leftSection={<IconFileAnalytics size={18} />}
-          active={view.page === "list" || (view.page === "detail" && view.from === "list")}
-          onClick={() => { navigate({ page: "list" }); toggleMobile(); }}
-        />
-        <NavLink
-          label="Toolkits"
+          label={tr("Produkte", "Products")}
           leftSection={<IconBox size={18} />}
-          active={view.page === "toolkits" || (view.page === "detail" && view.from === "toolkits")}
-          onClick={() => { navigate({ page: "toolkits" }); toggleMobile(); }}
-        />
+          active={isProductView(view)}
+          opened={productsOpened}
+          onChange={setProductsOpened}
+        >
+          <NavLink
+            label={tr("Prozess-Apps", "Process apps")}
+            leftSection={<IconFileAnalytics size={18} />}
+            active={view.page === "list" || (view.page === "detail" && view.from === "list")}
+            onClick={() => { navigate({ page: "list" }); toggleMobile(); }}
+          />
+          <NavLink
+            label="Toolkits"
+            leftSection={<IconBox size={18} />}
+            active={view.page === "toolkits" || (view.page === "detail" && view.from === "toolkits")}
+            onClick={() => { navigate({ page: "toolkits" }); toggleMobile(); }}
+          />
+        </NavLink>
         <NavLink
           label={tr("Vergleich", "Compare")}
           leftSection={<IconArrowsLeftRight size={18} />}
@@ -168,4 +181,10 @@ export default function App() {
       </AppShell.Footer>
     </AppShell>
   );
+}
+
+function isProductView(view: View) {
+  return view.page === "list"
+    || view.page === "toolkits"
+    || (view.page === "detail" && (view.from === "list" || view.from === "toolkits"));
 }
