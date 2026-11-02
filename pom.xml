@@ -58,7 +58,7 @@
       <!-- JavaScript syntax parser only (does not execute code); used by R-JS rules. -->
       <groupId>org.mozilla</groupId>
       <artifactId>rhino</artifactId>
-      <version>1.9.1</version>
+      <version>1.9.2</version>
     </dependency>
 
     <!-- JUnit tests -->
